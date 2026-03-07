@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 export default function Profile() {
@@ -6,10 +6,12 @@ export default function Profile() {
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [user, setUser] = useState(null);
   const [newSkill, setNewSkill] = useState("");
   const [skillType, setSkillType] = useState("teach");
   const [error, setError] = useState("");
+  const fileInputRef = useRef(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -151,6 +153,65 @@ export default function Profile() {
     navigate("/login");
   };
 
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      setError("Please select an image file");
+      return;
+    }
+
+    // Validate file size (max 3MB)
+    if (file.size > 3 * 1024 * 1024) {
+      setError("Image must be less than 3MB");
+      return;
+    }
+
+    setIsUploading(true);
+    setError("");
+
+    try {
+      const token = localStorage.getItem("token");
+
+      // Convert image to base64
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Image = reader.result;
+
+        // Update user photo in database
+        const response = await fetch("/api/users/update", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ photo: base64Image })
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to update profile photo");
+        }
+
+        const data = await response.json();
+        setUser(data.user);
+        setIsUploading(false);
+      };
+
+      reader.onerror = () => {
+        setError("Failed to read image file");
+        setIsUploading(false);
+      };
+
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error("Error uploading photo:", err);
+      setError("Failed to upload photo. Please try again.");
+      setIsUploading(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="pt-24 pb-12 max-w-7xl mx-auto px-6 flex items-center justify-center min-h-[60vh]">
@@ -187,11 +248,43 @@ export default function Profile() {
         <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-primary/5 to-secondary/5 rounded-full blur-3xl"></div>
         
         <div className="relative flex flex-col md:flex-row gap-8 items-center md:items-start">
-          <div className="relative">
-            <img
-              src={user?.photo || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&q=80"}
-              className="h-40 w-40 rounded-3xl object-cover border-4 border-white shadow-lg"
-              alt="user"
+          <div className="relative group">
+            {user?.photo ? (
+              <img
+                src={user.photo}
+                className="h-40 w-40 rounded-3xl object-cover border-4 border-white shadow-lg"
+                alt="user"
+              />
+            ) : (
+              <div className="h-40 w-40 rounded-3xl border-4 border-white shadow-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-5xl font-bold">
+                {user?.name ? user.name.charAt(0).toUpperCase() : "U"}
+              </div>
+            )}
+            {/* Upload Button Overlay */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className="absolute inset-0 bg-black/50 rounded-3xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+            >
+              {isUploading ? (
+                <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <div className="text-white text-center">
+                  <svg className="w-8 h-8 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span className="text-xs font-medium">Change Photo</span>
+                </div>
+              )}
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handlePhotoUpload}
+              accept="image/*"
+              className="hidden"
+              disabled={isUploading}
             />
           </div>
 
@@ -270,7 +363,7 @@ export default function Profile() {
               </div>
               <div className="text-center px-4">
                 <div className="text-2xl font-bold text-purple-600">{user?.trustScore || 0}</div>
-                <div className="text-sm text-gray-500">Trust Score</div>
+                <div className="text-sm text-gray-500"> Trust Score</div>
               </div>
             </div>
 
@@ -423,3 +516,4 @@ export default function Profile() {
     </div>
   );
 }
+

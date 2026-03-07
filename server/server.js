@@ -32,7 +32,16 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+// Increase payload limit for profile photo uploads (10MB)
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Security headers for COOP policy (fixes popup issues)
+app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  next();
+});
 
 // =====================
 // API Routes
@@ -40,7 +49,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/messages", messageRoutes);
-app.use("/api/match", matchRoutes);
+app.use("/api/matches", matchRoutes);
 app.use("/api/ai", aiMatchRoutes);
 app.use("/api/session", sessionRoutes);
 
@@ -50,12 +59,33 @@ app.get("/", (req, res) => {
 });
 
 // =====================
+// MongoDB Connection Helper
+// =====================
+const isDbConnected = () => {
+  const state = mongoose.connection.readyState;
+  // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+  return state === 1;
+};
+
+// =====================
 // MongoDB Connection
 // =====================
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.log("❌ MongoDB Error:", err));
+const connectDB = () => {
+  mongoose
+    .connect(process.env.MONGO_URI)
+    .then(() => {
+      console.log("✅ MongoDB Connected");
+    })
+    .catch((err) => {
+      console.log("❌ MongoDB Connection Error:", err.message);
+    });
+};
+
+// Connect to MongoDB
+connectDB();
+
+// Track online users: Map<userId, socketId>
+const onlineUsers = new Map();
 
 // =====================
 // Socket.IO Setup
@@ -69,9 +99,6 @@ const io = new Server(server, {
   },
 });
 
-// Track online users: Map<userId, socketId>
-const onlineUsers = new Map();
-
 io.on("connection", (socket) => {
   console.log("🟢 Client connected:", socket.id);
 
@@ -82,11 +109,20 @@ io.on("connection", (socket) => {
     onlineUsers.set(userId, socket.id);
     socket.userId = userId;
     
-    // Update database
+    // Check if database is connected before attempting update
+    if (!isDbConnected()) {
+      console.warn("⚠️ MongoDB not connected - skipping user online status update");
+      // Still broadcast status to clients for UI purposes
+      io.emit("user_status_change", { userId, isOnline: true });
+      console.log(`✅ User ${userId} is now online (DB unavailable)`);
+      return;
+    }
+    
+    // Update database only if connected
     try {
       await User.findByIdAndUpdate(userId, { isOnline: true });
     } catch (err) {
-      console.error("Error updating user online status:", err);
+      console.error("Error updating user online status:", err.message);
     }
     
     // Broadcast to all clients
@@ -100,10 +136,18 @@ io.on("connection", (socket) => {
     
     onlineUsers.delete(userId);
     
+    // Check if database is connected before attempting update
+    if (!isDbConnected()) {
+      console.warn("⚠️ MongoDB not connected - skipping user offline status update");
+      io.emit("user_status_change", { userId, isOnline: false });
+      console.log(`❌ User ${userId} is now offline (DB unavailable)`);
+      return;
+    }
+    
     try {
       await User.findByIdAndUpdate(userId, { isOnline: false });
     } catch (err) {
-      console.error("Error updating user offline status:", err);
+      console.error("Error updating user offline status:", err.message);
     }
     
     io.emit("user_status_change", { userId, isOnline: false });
@@ -121,6 +165,12 @@ io.on("connection", (socket) => {
 
   // Send private message
   socket.on("send_message", async (data) => {
+    // Check if database is connected
+    if (!isDbConnected()) {
+      console.warn("⚠️ MongoDB not connected - cannot send message");
+      return;
+    }
+    
     try {
       const { senderId, receiverId, message, chatId } = data;
       
@@ -154,7 +204,7 @@ io.on("connection", (socket) => {
 
       console.log(`💬 Message sent from ${senderId} to ${receiverId}`);
     } catch (err) {
-      console.error("❌ Error sending message:", err);
+      console.error("❌ Error sending message:", err.message);
     }
   });
 
@@ -179,10 +229,18 @@ io.on("connection", (socket) => {
     if (socket.userId) {
       onlineUsers.delete(socket.userId);
       
+      // Check if database is connected before attempting update
+      if (!isDbConnected()) {
+        console.warn("⚠️ MongoDB not connected - skipping user offline status update on disconnect");
+        io.emit("user_status_change", { userId: socket.userId, isOnline: false });
+        console.log(`🔴 User ${socket.userId} disconnected (DB unavailable)`);
+        return;
+      }
+      
       try {
         await User.findByIdAndUpdate(socket.userId, { isOnline: false });
       } catch (err) {
-        console.error("Error updating user offline status:", err);
+        console.error("Error updating user offline status:", err.message);
       }
       
       io.emit("user_status_change", { userId: socket.userId, isOnline: false });
@@ -192,9 +250,25 @@ io.on("connection", (socket) => {
 });
 
 // =====================
+// MongoDB Connection Event Listeners
+// =====================
+mongoose.connection.on("disconnected", () => {
+  console.log("⚠️ MongoDB disconnected");
+});
+
+mongoose.connection.on("error", (err) => {
+  console.log("❌ MongoDB error:", err.message);
+});
+
+mongoose.connection.on("reconnected", () => {
+  console.log("🔄 MongoDB reconnected");
+});
+
+// =====================
 // Server Start
 // =====================
 const PORT = process.env.PORT || 5000;
+
 server.listen(PORT, () => {
   console.log(`🚀 Server & Socket running on port ${PORT}`);
 });

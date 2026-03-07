@@ -1,59 +1,43 @@
-import { useState } from "react";
-
-const mockMatches = [
-  {
-    id: 1,
-    name: "Alice Johnson",
-    photo: "https://i.pravatar.cc/150?img=1",
-    skill: "React Development",
-    skillLevel: "Expert",
-    wants: "UI/UX Design",
-    wantLevel: "Beginner",
-    bio: "Frontend developer with 5 years of experience. Looking to learn design principles.",
-    matchScore: 95
-  },
-  {
-    id: 2,
-    name: "Bob Smith",
-    photo: "https://i.pravatar.cc/150?img=2",
-    skill: "Python Programming",
-    skillLevel: "Advanced",
-    wants: "Web Development",
-    wantLevel: "Intermediate",
-    bio: "Data scientist wanting to build web applications.",
-    matchScore: 88
-  },
-  {
-    id: 3,
-    name: "Carol White",
-    photo: "https://i.pravatar.cc/150?img=3",
-    skill: "Graphic Design",
-    skillLevel: "Expert",
-    wants: "SEO Marketing",
-    wantLevel: "Beginner",
-    bio: "Professional designer seeking to expand into digital marketing.",
-    matchScore: 82
-  },
-  {
-    id: 4,
-    name: "David Lee",
-    photo: "https://i.pravatar.cc/150?img=4",
-    skill: "Node.js Backend",
-    skillLevel: "Advanced",
-    wants: "React Frontend",
-    wantLevel: "Intermediate",
-    bio: "Full-stack developer wanting to specialize in React.",
-    matchScore: 78
-  }
-];
+import { useState, useEffect } from "react";
 
 export default function Matches() {
-  const [matches] = useState(mockMatches);
+  const [matches, setMatches] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchMatches();
+  }, []);
+
+  const fetchMatches = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      const response = await fetch("/api/matches/matches", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      setMatches(data);
+    } catch (err) {
+      console.error("Error fetching matches:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 pt-20 pb-12">
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 pt-20 pb-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
         <div className="text-center py-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">
             Your Matches
@@ -78,28 +62,30 @@ export default function Matches() {
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {matches.map((match) => (
               <div
-                key={match.id}
+                key={match._id}
                 className="bg-white rounded-3xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden"
               >
                 <div className="p-6">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-4">
-                      <img
-                        src={match.photo}
-                        alt={match.name}
-                        className="w-16 h-16 rounded-2xl object-cover"
-                      />
+                      {match.photo ? (
+                        <img src={match.photo} alt={match.name} className="w-16 h-16 rounded-2xl object-cover" />
+                      ) : (
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-2xl font-bold">
+                          {match.name ? match.name.charAt(0).toUpperCase() : "U"}
+                        </div>
+                      )}
                       <div>
-                        <h3 className="font-bold text-lg text-gray-900">{match.name}</h3>
-                        <p className="text-sm text-gray-500">{match.skillLevel}</p>
+                        <h3 className="font-bold text-lg text-gray-900">{match.name || "User"}</h3>
+                        <p className="text-sm text-gray-500">{match.title || "Skill Enthusiast"}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 bg-green-100 px-3 py-1 rounded-full">
-                      <span className="text-green-600 font-bold">{match.matchScore}%</span>
+                      <span className="text-green-600 font-bold">{match.matchScore || 0}%</span>
                     </div>
                   </div>
 
-                  <p className="text-gray-600 text-sm mb-4">{match.bio}</p>
+                  <p className="text-gray-600 text-sm mb-4">{match.bio || "No bio available"}</p>
 
                   <div className="space-y-3 mb-6">
                     <div className="flex items-center justify-between p-3 bg-primary/5 rounded-xl">
@@ -109,7 +95,9 @@ export default function Matches() {
                         </svg>
                         <span className="text-sm font-medium text-gray-700">Can Teach</span>
                       </div>
-                      <span className="text-primary font-semibold text-sm">{match.skill}</span>
+                      <span className="text-primary font-semibold text-sm">
+                        {match.skills?.filter(s => s.type === "teach").map(s => s.name).join(", ") || "Not specified"}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between p-3 bg-secondary/5 rounded-xl">
                       <div className="flex items-center gap-2">
@@ -118,7 +106,9 @@ export default function Matches() {
                         </svg>
                         <span className="text-sm font-medium text-gray-700">Wants to Learn</span>
                       </div>
-                      <span className="text-secondary font-semibold text-sm">{match.wants}</span>
+                      <span className="text-secondary font-semibold text-sm">
+                        {match.skills?.filter(s => s.type === "learn").map(s => s.name).join(", ") || "Not specified"}
+                      </span>
                     </div>
                   </div>
 

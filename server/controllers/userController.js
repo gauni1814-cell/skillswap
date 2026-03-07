@@ -13,8 +13,12 @@ exports.getProfile = async (req, res) => {
 // Get all mentors (users with skills to teach)
 exports.getMentors = async (req, res) => {
   try {
-    // Get users who have at least one skill with type "teach"
+    // Get the current user ID from auth middleware
+    const currentUserId = req.user.id;
+    
+    // Get users who have at least one skill with type "teach", excluding current user
     const mentors = await User.find({
+      _id: { $ne: currentUserId },
       "skills.type": "teach"
     }).select("-password");
     
@@ -24,10 +28,10 @@ exports.getMentors = async (req, res) => {
   }
 };
 
-// Update profile (skills + availability + basic info)
+// Update profile (skills + availability + basic info + photo)
 exports.updateProfile = async (req, res) => {
   try {
-    const { name, title, bio, skills, availability } = req.body;
+    const { name, title, bio, skills, availability, photo } = req.body;
 
     // Build update object
     const updateData = {};
@@ -36,6 +40,20 @@ exports.updateProfile = async (req, res) => {
     if (name !== undefined) updateData.name = name;
     if (title !== undefined) updateData.title = title;
     if (bio !== undefined) updateData.bio = bio;
+
+    // Handle photo update (base64 string from client)
+    if (photo !== undefined) {
+      // Validate base64 image format
+      if (photo && !photo.startsWith('data:image/')) {
+        return res.status(400).json({ msg: "Invalid photo format" });
+      }
+      // Check size - base64 strings are ~33% larger than original file
+      // Allow up to 3MB original size (roughly 4MB base64 string)
+      if (photo && photo.length > 4 * 1024 * 1024) {
+        return res.status(400).json({ msg: "Photo size too large (max 3MB)" });
+      }
+      updateData.photo = photo;
+    }
 
     // Handle skills update
     if (skills !== undefined) {

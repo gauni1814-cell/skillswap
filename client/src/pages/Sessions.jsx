@@ -10,6 +10,9 @@ export default function Sessions() {
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [requestForm, setRequestForm] = useState({ skill: "", date: "", time: "" });
   const [sendingRequest, setSendingRequest] = useState(false);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState(null);
+  const [meetingLinkInput, setMeetingLinkInput] = useState("");
 
   const navigate = useNavigate();
 
@@ -66,18 +69,57 @@ export default function Sessions() {
         body: JSON.stringify({ sessionId })
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error("Failed to accept session");
+        throw new Error(data.msg || "Failed to accept session");
       }
 
-      const data = await response.json();
       setSessions(sessions.map(s => 
         s._id === sessionId ? data.session : s
       ));
+      alert("Session accepted! Meeting link has been created.");
     } catch (err) {
       console.error("Error accepting session:", err);
-      alert("Failed to accept session");
+      alert(err.message || "Failed to accept session");
     }
+  };
+
+  const handleUpdateMeetingLink = async (sessionId) => {
+    const token = localStorage.getItem("token");
+    try {
+      const response = await fetch("/api/session/update-link", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ sessionId, liveLink: meetingLinkInput })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.msg || "Failed to update meeting link");
+      }
+
+      setSessions(sessions.map(s => 
+        s._id === sessionId ? data.session : s
+      ));
+      setShowLinkModal(false);
+      setMeetingLinkInput("");
+      setEditingSessionId(null);
+      alert("Meeting link updated successfully!");
+    } catch (err) {
+      console.error("Error updating meeting link:", err);
+      alert(err.message || "Failed to update meeting link");
+    }
+  };
+
+  const openLinkModal = (session) => {
+    setEditingSessionId(session._id);
+    setMeetingLinkInput(session.liveLink || "");
+    setShowLinkModal(true);
   };
 
   const handleSendRequest = async (e) => {
@@ -204,11 +246,17 @@ export default function Sessions() {
                     </div>
                     
                     <div className="flex items-center gap-3 mb-4">
-                      <img
-                        src={otherUser?.photo || "https://i.pravatar.cc/40"}
-                        alt={otherUser?.name}
-                        className="w-10 h-10 rounded-full object-cover"
-                      />
+                      {otherUser?.photo ? (
+                        <img
+                          src={otherUser?.photo}
+                          alt={otherUser?.name}
+                          className="w-10 h-10 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold">
+                          {otherUser?.name ? otherUser.name.charAt(0).toUpperCase() : "?"}
+                        </div>
+                      )}
                       <div>
                         <p className="text-sm text-gray-500">{amITeacher ? "Learner" : "Teacher"}</p>
                         <p className="font-medium text-gray-900">{otherUser?.name || "User"}</p>
@@ -230,12 +278,12 @@ export default function Sessions() {
                         onClick={() => handleAcceptSession(session._id)}
                         className="w-full py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-medium rounded-xl hover:shadow-lg transition-all mb-2"
                       >
-                        Accept & Generate Link
+                        Accept Session
                       </button>
                     )}
 
-                    {/* Show Join button for accepted sessions */}
-                    {session.status === "accepted" && session.liveLink && (
+                    {/* Show Join button for accepted sessions with valid link */}
+{session.status === "accepted" && session.liveLink && (
                       <a
                         href={session.liveLink}
                         target="_blank"
@@ -244,6 +292,25 @@ export default function Sessions() {
                       >
                         Join Session
                       </a>
+                    )}
+
+                    {/* Show button to add/update meeting link for teachers */}
+                    {amITeacher && session.status === "accepted" && (
+                      <button
+                        onClick={() => openLinkModal(session)}
+                        className="w-full py-2 mt-2 bg-blue-500 text-white font-medium rounded-xl hover:bg-blue-600 transition-all text-sm"
+                      >
+{session.liveLink 
+                          ? "Update Meeting Link" 
+                          : "Add Meeting Link"}
+                      </button>
+                    )}
+
+                    {/* Show waiting message for learners when no valid link */}
+{!amITeacher && session.status === "accepted" && !session.liveLink && (
+                      <div className="text-center py-2 text-sm text-gray-500">
+                        Waiting for teacher to add meeting link...
+                      </div>
                     )}
 
                     {/* Show rating for completed sessions */}
@@ -268,6 +335,45 @@ export default function Sessions() {
           </div>
         )}
       </div>
+
+      {/* Modal for entering meeting link */}
+      {showLinkModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold mb-4">Add Meeting Link</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Create a Google Meet or Zoom meeting and paste the link here to share with the learner.
+            </p>
+            <input
+              type="url"
+              value={meetingLinkInput}
+              onChange={(e) => setMeetingLinkInput(e.target.value)}
+              placeholder="https://meet.google.com/xxx-xxxx-xxx"
+              className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent"
+            />
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => {
+                  setShowLinkModal(false);
+                  setMeetingLinkInput("");
+                  setEditingSessionId(null);
+                }}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleUpdateMeetingLink(editingSessionId)}
+                disabled={!meetingLinkInput.trim()}
+                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Save Link
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

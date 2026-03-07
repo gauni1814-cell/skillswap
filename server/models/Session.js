@@ -12,6 +12,8 @@ const sessionSchema = new mongoose.Schema({
     default: "pending" 
   },
   liveLink: { type: String, default: null },
+  googleEventId: { type: String, default: null },
+  teacherEmail: { type: String, default: null },
   messages: [
     {
       sender: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

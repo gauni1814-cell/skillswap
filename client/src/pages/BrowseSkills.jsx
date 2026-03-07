@@ -34,8 +34,13 @@ export default function BrowseSkills() {
   }, []);
 
   const fetchMentors = async () => {
+    const token = localStorage.getItem("token");
     try {
-      const response = await fetch("http://localhost:5000/api/users/mentors");
+      const response = await fetch("/api/users/mentors", {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
       if (!response.ok) throw new Error("Failed to fetch mentors");
       const data = await response.json();
       setMentors(data);
@@ -77,7 +82,7 @@ export default function BrowseSkills() {
     setRequestError("");
 
     try {
-      const response = await fetch("http://localhost:5000/api/session", {
+      const response = await fetch("/api/session", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -204,11 +209,17 @@ export default function BrowseSkills() {
                   <div className="p-5">
                     <div className="flex items-center gap-4 mb-4">
                       <div className="relative">
-                        <img
-                          src={mentor.photo || "https://i.pravatar.cc/100"}
-                          alt={mentor.name}
-                          className="w-16 h-16 rounded-2xl object-cover"
-                        />
+                        {mentor.photo ? (
+                          <img
+                            src={mentor.photo}
+                            alt={mentor.name}
+                            className="w-16 h-16 rounded-2xl object-cover"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold text-xl">
+                            {mentor.name ? mentor.name.charAt(0).toUpperCase() : "?"}
+                          </div>
+                        )}
                         {/* Online/Offline Status Indicator */}
                         <span 
                           className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-white ${

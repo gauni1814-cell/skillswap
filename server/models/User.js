@@ -38,6 +38,14 @@ const userSchema = new mongoose.Schema(
 
     // 🔐 Normal Login
     password: { type: String }, // hashed password
+    
+    // 🔑 Password Reset
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Date },
+
+    // 🔐 Password Reset OTP
+    resetOtp: { type: String },
+    resetOtpExpires: { type: Date },
 
     // 🔑 Google Login
     photo: { type: String },
@@ -57,6 +65,15 @@ const userSchema = new mongoose.Schema(
 
     // 💬 Realtime Chat
     isOnline: { type: Boolean, default: false },
+
+    // 🔗 Google OAuth Tokens
+    googleTokens: {
+      access_token: { type: String },
+      refresh_token: { type: String },
+      scope: { type: String },
+      token_type: { type: String },
+      expiry_date: { type: Number },
+    },
   },
   { timestamps: true }
 );

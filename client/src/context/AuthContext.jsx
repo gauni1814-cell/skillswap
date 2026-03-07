@@ -32,6 +32,30 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user]);
 
+  // Function to refresh user data from server
+  const refreshUser = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return null;
+    
+    try {
+      const response = await fetch("/api/users/me", {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const freshUserData = await response.json();
+        localStorage.setItem("user", JSON.stringify(freshUserData));
+        setUser(freshUserData);
+        return freshUserData;
+      }
+    } catch (error) {
+      console.error("Error refreshing user data:", error);
+    }
+    return null;
+  };
+
   const login = async (token, userData, navigate) => {
     localStorage.setItem("token", token);
     localStorage.setItem("user", JSON.stringify(userData));
@@ -74,7 +98,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, setUser, login, register, logout, loading }}>
+    <AuthContext.Provider value={{ user, setUser, login, register, logout, loading, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import socket, { isSocketConnected, onSocketConnected } from "../socket";
 
-// API Base URL
-const API_URL = "http://localhost:5000";
+// API Base URL - use empty string for relative URLs
+const API_URL = "";
 
 export default function Chat() {
   const navigate = useNavigate();
@@ -367,8 +367,8 @@ export default function Chat() {
     );
   }
 
-  return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-100 to-slate-200">
+return (
+    <div className="flex h-[calc(100vh-4rem)] bg-gradient-to-br from-slate-100 to-slate-200">
       {/* Sidebar - Conversations */}
       <div className="w-96 bg-white/80 backdrop-blur-xl border-r border-slate-200/50 flex flex-col shadow-2xl">
         {/* Header */}
@@ -417,11 +417,17 @@ export default function Chat() {
         {/* User Profile Mini */}
         <div className="p-4 border-b border-slate-200/50 bg-slate-50/50">
           <div className="flex items-center gap-3 p-3 bg-white rounded-2xl shadow-sm">
-            <img
-              src={currentUser?.photo || `https://i.pravatar.cc/40?u=${currentUser?._id}`}
-              alt={currentUser?.name}
-              className="w-10 h-10 rounded-xl object-cover"
-            />
+            {currentUser?.photo ? (
+              <img
+                src={currentUser?.photo}
+                alt={currentUser?.name}
+                className="w-10 h-10 rounded-xl object-cover"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
+                {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : "U"}
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-slate-900 truncate">{currentUser?.name}</p>
               <p className="text-xs text-slate-500">Your Profile</p>
@@ -587,11 +593,17 @@ export default function Chat() {
                       className="w-full p-4 flex items-center gap-4 hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 rounded-2xl transition-all group"
                     >
                       <div className="relative">
-                        <img
-                          src={user.photo || `https://i.pravatar.cc/40?u=${user._id}`}
-                          alt={user.name}
-                          className="w-14 h-14 rounded-2xl object-cover shadow-md group-hover:scale-105 transition-transform"
-                        />
+                        {user.photo ? (
+                          <img
+                            src={user.photo}
+                            alt={user.name}
+                            className="w-14 h-14 rounded-2xl object-cover shadow-md group-hover:scale-105 transition-transform"
+                          />
+                        ) : (
+                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-xl shadow-md group-hover:scale-105 transition-transform">
+                            {user.name ? user.name.charAt(0).toUpperCase() : "?"}
+                          </div>
+                        )}
                         {user.isOnline && (
                           <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 border-3 border-white rounded-xl"></span>
                         )}

@@ -6,21 +6,27 @@ import Home from "./pages/Home";
 import BrowseSkills from "./pages/BrowseSkills";
 import Profile from "./pages/Profile";
 import Dashboard from "./pages/Dashboard";
-import Login from "./pages/Login";
 import Register from "./pages/Register";
+import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
 import Chat from "./pages/Chat";
 import Sessions from "./pages/Sessions";
+import Matches from "./pages/Matches";
+import OAuthCallback from "./pages/OAuthCallback";
 
 export default function App() {
   return (
     <>
       <Navbar />
 
-      <Routes>
+      <main className="pt-16 min-h-screen">
+        <Routes>
         {/* Public routes */}
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/oauth-callback" element={<OAuthCallback />} />
         
         {/* Protected routes */}
         <Route 
@@ -63,10 +69,20 @@ export default function App() {
             </ProtectedRoute>
           } 
         />
+        <Route 
+          path="/matches" 
+          element={
+            <ProtectedRoute>
+              <Matches />
+            </ProtectedRoute>
+          } 
+        />
         
-        {/* Redirect unknown routes to home */}
+{/* Redirect unknown routes to home */}
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+        </Routes>
+      </main>
     </>
   );
 }
+

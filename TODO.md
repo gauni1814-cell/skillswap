@@ -1,28 +1,36 @@
-# Chat Fix Implementation Plan
+# SkillSwap Error Fixes
 
-## Issues Identified:
-1. Socket connection timing - race conditions where events are emitted before socket is connected
-2. Missing connection verification before emitting socket events
-3. Inconsistent data structure between server response and client expectations
+## Errors Identified and Fixed:
 
-## Fix Plan Completed:
+### 1. ✅ SVG Path Error in Home.jsx
+- **Problem**: Invalid SVG path starting with `.253` instead of `M`
+- **Fix**: Changed `.253v13M12...` to `M12 6.253v13...` in features array
 
-### Step 1: Fix client/src/socket.js ✅
-- [x] Added robust connection state tracking
-- [x] Added onSocketConnected callback for waiting on connection
-- [x] Added connection status indicator functions
-- [x] Added reconnectSocket helper function
-- [x] Increased reconnection attempts to 10
+### 2. ✅ API Route 404 Error
+- **Problem**: Client calls `/api/matches/matches` but server used `/api/match/matches`
+- **Fix**: Changed `app.use("/api/match", matchRoutes)` to `app.use("/api/matches", matchRoutes)` in server.js
 
-### Step 2: Fix client/src/pages/Chat.jsx ✅
-- [x] Added socket connection verification before emitting events
-- [x] Wait for socket connection before join_chat
-- [x] Created safeEmit helper function for sending messages
-- [x] Handle edge cases for message sending
-- [x] Fix message handling to work with server response structure
-- [x] Track socket connection status in component state
+### 3. ✅ Dashboard Hardcoded URLs
+- **Problem**: Hardcoded `http://localhost:5000` URLs
+- **Fix**: Changed to relative paths `/api/session` and `/api/matches/matches`
 
-### Step 3: Test the fixes
-- [ ] Verify server is running on port 5000
-- [ ] Verify client connects to socket
-- [ ] Test sending and receiving messages
+### 4. ✅ Profile Photo Upload 413 Error
+- **Problem**: Server didn't handle `photo` field and had small payload limit
+- **Fix**: 
+  - Added `photo` field handling in userController.js
+  - Increased express payload limit to 10MB in server.js
+
+### 5. ✅ Socket Popup COOP Policy Error
+- **Problem**: Cross-Origin-Opener-Policy blocked popup windows
+- **Fix**: Added COOP and COEP headers in server.js middleware
+
+### 6. ✅ Dashboard JSON Parse Error
+- **Problem**: Fetching non-JSON responses caused SyntaxError
+- **Fix**: Added content-type checking and proper error handling in Dashboard.jsx
+
+## Files Modified:
+1. `client/src/pages/Home.jsx` - SVG path fix
+2. `client/src/pages/Dashboard.jsx` - Relative URLs and error handling
+3. `server/server.js` - API route, payload limit, COOP headers
+4. `server/controllers/userController.js` - Photo field handling
+

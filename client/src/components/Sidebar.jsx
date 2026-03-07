@@ -7,7 +7,6 @@ const Sidebar = () => {
     { name: "Dashboard", path: "/" },
     { name: "Matches", path: "/matches" },
     { name: "Sessions", path: "/sessions" },
-    { name: "AI Matches", path: "/ai-matches" },
   ];
 
   return (
