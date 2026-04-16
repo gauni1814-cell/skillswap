@@ -72,4 +72,23 @@ export const matchAPI = {
   createMatch: (data) => api.post('/match', data)
 };
 
+// Admin APIs
+export const adminAPI = {
+  getDashboard: () => api.get('/admin/dashboard'),
+  listUsers: (params) => api.get('/admin/users', { params }),
+  getUser: (id) => api.get(`/admin/users/${id}`),
+  updateUser: (id, data) => api.patch(`/admin/users/${id}`, data),
+  deleteUser: (id) => api.delete(`/admin/users/${id}`),
+  sendEmail: (id, data) => api.post(`/admin/users/${id}/email`, data),
+  getReviews: () => api.get('/admin/reviews'),
+  listSkills: (params) => api.get('/admin/skills', { params }),
+  deleteSkill: (id) => api.delete(`/admin/skills/${id}`),
+  listSessions: (params) => api.get('/admin/sessions', { params }),
+  cancelSession: (id) => api.put(`/admin/sessions/${id}/cancel`)
+};
+
+// Admin Settings
+adminAPI.getSettings = () => api.get('/admin/settings');
+adminAPI.updateSettings = (data) => api.put('/admin/settings', data);
+
 export default api;

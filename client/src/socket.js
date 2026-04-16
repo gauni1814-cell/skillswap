@@ -15,8 +15,9 @@ const socket = io(SOCKET_URL, {
 
 // Connection status tracking with callbacks
 let isConnected = false;
-let reconnectAttempts = 0;
+let _reconnectAttempts = 0;
 const connectionCallbacks = [];
+let userOnlineEmitted = false; // Track if we already emitted user_online
 
 // Register a callback to be called when connection is established
 export const onSocketConnected = (callback) => {
@@ -37,17 +38,19 @@ const processConnectionCallbacks = () => {
 socket.on("connect", () => {
   console.log("🔌 Socket connected:", socket.id);
   isConnected = true;
-  reconnectAttempts = 0;
+  _reconnectAttempts = 0;
   
   // Process any pending connection callbacks
   processConnectionCallbacks();
   
+  // Only emit user_online once per connection
   const userData = localStorage.getItem("user");
-  if (userData) {
+  if (userData && !userOnlineEmitted) {
     try {
       const user = JSON.parse(userData);
       if (user._id) {
         socket.emit("user_online", user._id);
+        userOnlineEmitted = true;
       }
     } catch (e) {
       console.error("Error parsing user data:", e);
@@ -57,6 +60,7 @@ socket.on("connect", () => {
 
 // Handle disconnection
 socket.on("disconnect", (reason) => {
+  userOnlineEmitted = false; // Allow re-emission on reconnect
   console.log("🔌 Socket disconnected:", reason);
   isConnected = false;
 });
@@ -64,7 +68,7 @@ socket.on("disconnect", (reason) => {
 // Handle connection errors
 socket.on("connect_error", (error) => {
   console.error("❌ Socket connection error:", error.message);
-  reconnectAttempts++;
+  _reconnectAttempts++;
 });
 
 // Handle reconnection
@@ -77,11 +81,12 @@ socket.on("reconnect", (attemptNumber) => {
   
   // Re-emit user online status
   const userData = localStorage.getItem("user");
-  if (userData) {
+  if (userData && !userOnlineEmitted) {
     try {
       const user = JSON.parse(userData);
       if (user._id) {
         socket.emit("user_online", user._id);
+        userOnlineEmitted = true;
       }
     } catch (e) {
       console.error("Error parsing user data:", e);
@@ -92,7 +97,7 @@ socket.on("reconnect", (attemptNumber) => {
 // Handle reconnection attempts
 socket.on("reconnect_attempt", (attemptNumber) => {
   console.log(`🔄 Reconnection attempt ${attemptNumber}`);
-  reconnectAttempts = attemptNumber;
+  _reconnectAttempts = attemptNumber;
 });
 
 // Handle reconnection failure
@@ -100,11 +105,16 @@ socket.on("reconnect_failed", () => {
   console.error("❌ Socket reconnection failed after all attempts");
 });
 
-// Listen for user status changes
+// Listen for user status changes - only log once to prevent spam
+let lastStatusChange = {};
 socket.on("user_status_change", (data) => {
-  console.log("User status changed:", data);
-  // Emit custom event that components can listen to
-  window.dispatchEvent(new CustomEvent("userStatusChange", { detail: data }));
+  // Only log if this is different from the last change for this user
+  const key = `${data.userId}_${data.isOnline}`;
+  if (lastStatusChange[key] !== true) {
+    console.log("User status changed:", data);
+    window.dispatchEvent(new CustomEvent("userStatusChange", { detail: data }));
+    lastStatusChange[key] = true;
+  }
 });
 
 // Listen for incoming messages for debugging

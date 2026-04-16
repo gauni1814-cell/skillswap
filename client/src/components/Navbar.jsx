@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navigate = useNavigate();
   const { user, logout, refreshUser } = useAuth();
+  const location = useLocation();
 
   // Fetch fresh user data on mount to ensure photo is up to date
   useEffect(() => {
@@ -15,11 +16,14 @@ export default function Navbar() {
       }
     };
     fetchFreshUser();
-  }, []);
+  }, [refreshUser]);
 
   const handleLogout = () => {
     logout(navigate);
   };
+
+  // Hide global navbar on admin pages (admin has its own layout)
+  if (location.pathname.startsWith('/admin')) return null;
 
   return (
     <nav className="fixed w-full z-50 glass border-b border-gray-200/50">
@@ -37,30 +41,39 @@ export default function Navbar() {
           </Link>
 
           <div className="hidden md:flex items-center space-x-6">
-            <Link to="/browse" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">
-              Browse Skills
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
-            </Link>
-            <Link to="/matches" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">
-              Matches
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
-            </Link>
-            <Link to="/dashboard" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">
-              Dashboard
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
-            </Link>
-            <Link to="/sessions" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">
-              Sessions
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
-            </Link>
-            <Link to="/chat" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">
-              Chat
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
-            </Link>
-            <Link to="/profile" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">
-              Profile
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
-            </Link>
+            {/* Role-based navigation */}
+            {!user && (
+              <>
+                <Link to="/browse" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Browse Skills</Link>
+                <Link to="/login" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Login</Link>
+              </>
+            )}
+
+            {user?.role === 'learner' && (
+              <>
+                <Link to="/learner-dashboard" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Dashboard</Link>
+                <Link to="/browse" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Find Mentors</Link>
+                <Link to="/matches" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Requests</Link>
+                <Link to="/chat" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Chat</Link>
+                <Link to="/profile" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Profile</Link>
+              </>
+            )}
+
+            {user?.role === 'mentor' && (
+              <>
+                <Link to="/mentor-dashboard" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Dashboard</Link>
+                <Link to="/matches" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Requests</Link>
+                <Link to="/sessions" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Sessions</Link>
+                <Link to="/chat" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Chat</Link>
+                <Link to="/profile" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Profile</Link>
+              </>
+            )}
+
+            {user?.role === 'admin' && (
+              <>
+                <Link to="/admin" className="text-gray-700 hover:text-primary font-medium transition-colors duration-200 relative group">Admin</Link>
+              </>
+            )}
           </div>
 
           <div className="hidden md:flex items-center space-x-4">
@@ -107,24 +120,38 @@ export default function Navbar() {
       {isMenuOpen && (
         <div className="md:hidden glass border-t border-gray-200/50">
           <div className="px-4 py-4 space-y-3">
-            <Link to="/browse" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>
-              Browse Skills
-            </Link>
-            <Link to="/matches" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>
-              Matches
-            </Link>
-            <Link to="/dashboard" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>
-              Dashboard
-            </Link>
-            <Link to="/sessions" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>
-              Sessions
-            </Link>
-            <Link to="/chat" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>
-              Chat
-            </Link>
-            <Link to="/profile" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>
-              Profile
-            </Link>
+            {!user && (
+              <>
+                <Link to="/browse" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Browse Skills</Link>
+                <Link to="/login" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Login</Link>
+              </>
+            )}
+
+            {user?.role === 'learner' && (
+              <>
+                <Link to="/learner-dashboard" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Dashboard</Link>
+                <Link to="/browse" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Find Mentors</Link>
+                <Link to="/matches" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Requests</Link>
+                <Link to="/chat" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Chat</Link>
+                <Link to="/profile" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Profile</Link>
+              </>
+            )}
+
+            {user?.role === 'mentor' && (
+              <>
+                <Link to="/mentor-dashboard" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Dashboard</Link>
+                <Link to="/matches" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Requests</Link>
+                <Link to="/sessions" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Sessions</Link>
+                <Link to="/chat" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Chat</Link>
+                <Link to="/profile" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Profile</Link>
+              </>
+            )}
+
+            {user?.role === 'admin' && (
+              <>
+                <Link to="/admin" className="block px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors" onClick={() => setIsMenuOpen(false)}>Admin</Link>
+              </>
+            )}
             <div className="pt-3 border-t border-gray-200">
               {user ? (
                 <button onClick={handleLogout} className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors">

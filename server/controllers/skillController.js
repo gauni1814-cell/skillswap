@@ -51,6 +51,10 @@ exports.getMySkills = async (req, res) => {
 exports.getAllSkills = async (req, res) => {
   try {
     const { category, search, user } = req.query;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20); // Max 100, default 20
+    const skip = (page - 1) * limit;
+    
     let query = {};
     
     if (category && category !== "all") {
@@ -65,8 +69,24 @@ exports.getAllSkills = async (req, res) => {
       query.user = user;
     }
     
-    const skills = await Skill.find(query).populate("user", "name photo title bio _id yearsOfExperience").sort({ createdAt: -1 });
-    res.json(skills);
+    // Get total count
+    const total = await Skill.countDocuments(query);
+    
+    const skills = await Skill.find(query)
+      .populate("user", "name photo title bio _id yearsOfExperience")
+      .sort({ createdAt: -1 })
+      .limit(limit)
+.skip(skip)
+    
+    res.json({
+      skills,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

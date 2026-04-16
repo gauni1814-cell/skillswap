@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 
 export default function Profile() {
@@ -44,13 +44,7 @@ export default function Profile() {
     experienceLevel: "beginner"
   });
 
-  // Portfolio form state
-  const [showPortfolioForm, setShowPortfolioForm] = useState(false);
-  const [newPortfolioItem, setNewPortfolioItem] = useState({
-    title: "",
-    description: "",
-    link: ""
-  });
+  // Portfolio form state (removed unused portfolio form to satisfy lint)
 
   const [formData, setFormData] = useState({
     name: "",
@@ -76,41 +70,22 @@ export default function Profile() {
 
   // Request session modal state (for viewing mentor profile)
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [requestForm, setRequestForm] = useState({ skillId: "", date: "", time: "" });
-  const [sendingRequest, setSendingRequest] = useState(false);
-  const [requestError, setRequestError] = useState("");
-  const [requestSuccess, setRequestSuccess] = useState(false);
 
   // Availability & Reviews state
-  const [availability, setAvailability] = useState(user?.availability || []);
+  const availability = user?.availability || [];
   const [reviews, setReviews] = useState([]);
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [newReview, setNewReview] = useState({ rating: 5, comment: "" });
 
-  useEffect(() => {
-    if (viewingMentorId) {
-      fetchMentorData(viewingMentorId);
-      fetchMentorSkills(viewingMentorId);
-      fetchMentorReviews(viewingMentorId);
-    } else {
-      fetchUserData();
-      fetchSkills();
-      fetchUserReviews();
-    }
-  }, [viewingMentorId]);
 
-  const fetchMentorData = async (mentorId) => {
+  const fetchMentorData = useCallback(async (mentorId) => {
     const token = localStorage.getItem("token");
     try {
       const response = await fetch(`/api/users/${mentorId}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch mentor data");
-      }
+      if (!response.ok) throw new Error("Failed to fetch mentor data");
 
       const data = await response.json();
       setUser(data);
@@ -121,29 +96,25 @@ export default function Profile() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [setUser, setViewingMode]);
 
-  const fetchMentorSkills = async (mentorId) => {
+  const fetchMentorSkills = useCallback(async (mentorId) => {
     const token = localStorage.getItem("token");
     try {
       const response = await fetch(`/api/skills?user=${mentorId}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch mentor skills");
-      }
+      if (!response.ok) throw new Error("Failed to fetch mentor skills");
 
       const data = await response.json();
       setSkills(data);
     } catch (err) {
       console.error("Error fetching mentor skills:", err);
     }
-  };
+  }, [setSkills]);
 
-  const fetchUserData = async () => {
+  const fetchUserData = useCallback(async () => {
     const token = localStorage.getItem("token");
     if (!token) {
       navigate("/login");
@@ -152,14 +123,10 @@ export default function Profile() {
 
     try {
       const response = await fetch("/api/users/me", {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch user data");
-      }
+      if (!response.ok) throw new Error("Failed to fetch user data");
 
       const data = await response.json();
       setUser(data);
@@ -181,17 +148,15 @@ export default function Profile() {
       setError("Failed to load profile");
       setIsLoading(false);
     }
-  };
+  }, [navigate]);
 
-  const fetchSkills = async () => {
+  const fetchSkills = useCallback(async () => {
     const token = localStorage.getItem("token");
     if (!token) return;
 
     try {
       const response = await fetch("/api/skills/my-skills", {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       if (response.ok) {
@@ -201,17 +166,15 @@ export default function Profile() {
     } catch (err) {
       console.error("Error fetching skills:", err);
     }
-  };
+  }, []);
 
-  const fetchUserReviews = async () => {
+  const fetchUserReviews = useCallback(async () => {
     const token = localStorage.getItem("token");
     if (!token) return;
 
     try {
       const response = await fetch(`/api/users/reviews/${user?._id || "me"}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       if (response.ok) {
@@ -221,17 +184,15 @@ export default function Profile() {
     } catch (err) {
       console.error("Error fetching reviews:", err);
     }
-  };
+  }, [user?._id]);
 
-  const fetchMentorReviews = async (mentorId) => {
+  const fetchMentorReviews = useCallback(async (mentorId) => {
     const token = localStorage.getItem("token");
     if (!token) return;
 
     try {
       const response = await fetch(`/api/users/reviews/${mentorId}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       if (response.ok) {
@@ -241,7 +202,19 @@ export default function Profile() {
     } catch (err) {
       console.error("Error fetching mentor reviews:", err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (viewingMentorId) {
+      fetchMentorData(viewingMentorId);
+      fetchMentorSkills(viewingMentorId);
+      fetchMentorReviews(viewingMentorId);
+    } else {
+      fetchUserData();
+      fetchSkills();
+      fetchUserReviews();
+    }
+  }, [viewingMentorId, fetchMentorData, fetchMentorSkills, fetchMentorReviews, fetchUserData, fetchSkills, fetchUserReviews]);
 
   const handleAddReview = async () => {
     if (!newReview.comment.trim()) return;
@@ -258,7 +231,7 @@ export default function Profile() {
       });
 
       if (response.ok) {
-        const data = await response.json();
+        await response.json();
         fetchMentorReviews(viewingMentorId);
         setNewReview({ rating: 5, comment: "" });
         setShowReviewForm(false);
@@ -523,62 +496,7 @@ export default function Profile() {
     setFormData({ ...formData, areasOfExpertise: updated });
   };
 
-  // Handle adding portfolio item
-  const handleAddPortfolioItem = async () => {
-    if (!newPortfolioItem.title.trim()) return;
-
-    const token = localStorage.getItem("token");
-    const updatedPortfolio = [...(user?.portfolio || []), newPortfolioItem];
-
-    try {
-      const response = await fetch("/api/users/update", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({ portfolio: updatedPortfolio })
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to add portfolio item");
-      }
-
-      const data = await response.json();
-      setUser(data.user);
-      setNewPortfolioItem({ title: "", description: "", link: "" });
-      setShowPortfolioForm(false);
-    } catch (err) {
-      console.error("Error adding portfolio item:", err);
-      setError("Failed to add portfolio item");
-    }
-  };
-
-  const handleRemovePortfolioItem = async (index) => {
-    const token = localStorage.getItem("token");
-    const updatedPortfolio = user.portfolio.filter((_, i) => i !== index);
-
-    try {
-      const response = await fetch("/api/users/update", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({ portfolio: updatedPortfolio })
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to remove portfolio item");
-      }
-
-      const data = await response.json();
-      setUser(data.user);
-    } catch (err) {
-      console.error("Error removing portfolio item:", err);
-      setError("Failed to remove portfolio item");
-    }
-  };
+  // Portfolio handlers removed (UI not present in this view)
 
   const handleLogout = () => {
     localStorage.removeItem("token");

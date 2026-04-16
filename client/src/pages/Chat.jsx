@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import socket, { isSocketConnected, onSocketConnected } from "../socket";
+import toast from 'react-hot-toast';
 
 // API Base URL - use empty string for relative URLs
 const API_URL = "";
@@ -14,7 +15,6 @@ export default function Chat() {
   const currentUser = JSON.parse(localStorage.getItem("user") || "null");
   
   const [conversations, setConversations] = useState([]);
-  const [allUsers, setAllUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
@@ -24,8 +24,13 @@ export default function Chat() {
   const [isLoading, setIsLoading] = useState(true);
   const [socketConnected, setSocketConnected] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState({});
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [availableUsers, setAvailableUsers] = useState([]);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const unreadCountsFetchRef = useRef(false);
+  const messageIdsRef = useRef(new Set());
+
 
   // Redirect if not logged in
   useEffect(() => {
@@ -34,15 +39,32 @@ export default function Chat() {
     }
   }, [token, currentUser, navigate]);
 
-  // Auto-select mentor if passed from MentorProfile
+  // Auto-select mentor if passed from MentorProfile or SkillDetails
   useEffect(() => {
-    if (state?.mentor && allUsers.length > 0) {
-      const mentorUser = allUsers.find(u => u._id === state.mentor._id);
-      if (mentorUser) {
-        setSelectedUser(mentorUser);
+    if (state?.mentor && conversations.length > 0) {
+      // Find mentor ID - handle both direct _id and nested id
+      const mentorId = state.mentor._id || state.mentor.id;
+      
+      // Try to find mentor in conversations first
+      const mentorConversation = conversations.find(c => c.user?._id === mentorId);
+      
+      if (mentorConversation) {
+        setSelectedUser(mentorConversation.user);
+      } else {
+        // Create a properly structured user object with all required fields
+        const userObject = {
+          _id: mentorId,
+          name: state.mentor.name || 'Unknown',
+          photo: state.mentor.photo,
+          email: state.mentor.email,
+          isOnline: false,
+          skills: state.mentor.skills || [],
+          ...state.mentor
+        };
+        setSelectedUser(userObject);
       }
     }
-  }, [state?.mentor, allUsers]);
+  }, [state?.mentor, conversations]);
 
   // Track socket connection status
   useEffect(() => {
@@ -75,51 +97,135 @@ export default function Chat() {
     }
 
     const handleReceiveMessage = (data) => {
-      console.log("📥 Received message in Chat:", data);
+      console.log("📨 Received message event:", data);
       
-      setMessages(prev => {
-        const exists = prev.some(msg => msg._id === data._id);
-        if (exists) return prev;
-        
-        const senderId = data.sender?._id || data.sender;
-        const receiverId = data.receiver?._id || data.receiver;
-        
-        return [...prev, {
-          _id: data._id,
-          sender: { _id: senderId, name: data.sender?.name, photo: data.sender?.photo },
-          receiver: { _id: receiverId },
-          text: data.text,
-          createdAt: data.createdAt
-        }];
-      });
-
-      if (selectedUser) {
-        const senderId = data.sender?._id || data.sender;
-        const receiverId = data.receiver?._id || data.receiver;
-        
-        const isRelevant = 
-          (senderId === selectedUser._id) ||
-          (receiverId === selectedUser._id);
-        
-        if (isRelevant) {
-          setConversations(prev => {
-            const otherUserId = senderId === currentUser._id 
-              ? receiverId 
-              : senderId;
-            
-            const existingConv = prev.find(c => c.user?._id === otherUserId);
-            
-            if (existingConv) {
-              return prev.map(c => 
-                c.user?._id === otherUserId 
-                  ? { ...c, lastMessage: data.text, lastMessageTime: new Date() }
-                  : c
-              );
-            }
-            return prev;
-          });
-        }
+      const senderId = data.sender?._id || data.sender;
+      const receiverId = data.receiver?._id || data.receiver;
+      
+      // Use _id for deduplication if available
+      const messageId = data._id?.toString();
+      if (messageId && messageIdsRef.current.has(messageId)) {
+        console.log("⏭️  Skipping duplicate message:", messageId);
+        return;
       }
+
+      // If server returned a clientMessageId, reconcile pending optimistic message
+      const cId = data.clientMessageId;
+      if (cId) {
+        setMessages(prev => {
+          // Find pending message with same clientMessageId
+          const idx = prev.findIndex(m => m.clientMessageId === cId && m.isPending);
+          if (idx !== -1) {
+            // Replace pending message with server message
+            const next = [...prev];
+            next[idx] = {
+              _id: data._id,
+              sender: { _id: data.sender?._id || senderId, name: data.sender?.name || "User", photo: data.sender?.photo },
+              receiver: { _id: data.receiver?._id || receiverId },
+              text: data.text,
+              createdAt: data.createdAt,
+              isRead: data.isRead,
+              clientMessageId: cId
+            };
+            if (data._id) messageIdsRef.current.add(data._id.toString());
+            return next;
+          }
+
+          // Otherwise, fallthrough to conditional add below
+          return prev;
+        });
+      }
+
+      if (data._id) messageIdsRef.current.add(data._id.toString());
+
+      setMessages(prev => {
+        // Check if message matches current conversation
+        const isFromSelected = senderId === selectedUser?._id;
+        const isToSelected = receiverId === selectedUser?._id;
+
+        console.log("🔍 Checking message relevance:", {
+          senderId,
+          receiverId,
+          selectedUserId: selectedUser?._id,
+          isFromSelected,
+          isToSelected
+        });
+
+        // Only add message if it's related to the selected user
+        if (selectedUser && (isFromSelected || isToSelected)) {
+          // If a pending message with same clientMessageId was already replaced above, avoid adding duplicate
+          if (cId && prev.some(m => m.clientMessageId === cId && !m.isPending)) {
+            return prev;
+          }
+
+          console.log("✅ Adding message to conversation");
+          return [...prev, {
+            _id: data._id,
+            sender: {
+              _id: senderId,
+              name: data.sender?.name || "User",
+              photo: data.sender?.photo
+            },
+            receiver: { _id: receiverId },
+            text: data.text,
+            createdAt: data.createdAt,
+            isRead: data.isRead,
+            clientMessageId: cId
+          }];
+        }
+
+        console.log("⏭️  Message not relevant to current conversation");
+        return prev;
+      });
+    };
+
+    const handleMessageReceived = (data) => {
+      // This event is for when messages are received and user needs unread count update
+      
+      const senderId = data.from;
+      
+      // Update unread count for this user (only if not currently viewing this chat)
+      if (selectedUser?._id !== senderId) {
+        setUnreadCounts(prev => ({
+          ...prev,
+          [senderId]: (prev[senderId] || 0) + 1
+        }));
+      }
+      
+      // Update conversations list with new message
+      if (data.message) {
+        setConversations(prev => {
+          // Check if conversation already exists
+          const existingConv = prev.find(c => c.user?._id === senderId);
+          
+          if (existingConv) {
+            // Update existing conversation
+            return prev.map(conv => 
+              conv.user?._id === senderId
+                ? {
+                    ...conv,
+                    lastMessage: data.message.text,
+                    lastMessageTime: data.message.createdAt,
+                    unreadCount: selectedUser?._id === senderId ? 0 : (conv.unreadCount || 0) + 1
+                  }
+                : conv
+            ).sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
+          } else {
+            // Create new conversation entry
+            const newConv = {
+              user: data.message.sender,
+              lastMessage: data.message.text,
+              lastMessageTime: data.message.createdAt,
+              unreadCount: 1
+            };
+            return [newConv, ...prev];
+          }
+        });
+      }
+    };
+
+    const handleUnreadCountsUpdate = (counts) => {
+      setUnreadCounts(counts);
     };
 
     const handleUserTyping = (data) => {
@@ -129,7 +235,7 @@ export default function Chat() {
     };
 
     const handleUserStatusChange = ({ userId, isOnline }) => {
-      setAllUsers(prev => prev.map(u => 
+      setAvailableUsers(prev => prev.map(u => 
         u._id === userId ? { ...u, isOnline } : u
       ));
       setConversations(prev => prev.map(c => 
@@ -137,16 +243,52 @@ export default function Chat() {
       ));
     };
 
+    const handleConversationUpdated = ({ lastMessage, lastMessageTime }) => {
+      if (selectedUser) {
+        setConversations(prev => 
+          prev.map(c => 
+            c.user?._id === selectedUser._id 
+              ? { ...c, lastMessage, lastMessageTime }
+              : c
+          )
+        );
+      }
+    };
+
     socket.on("receive_message", handleReceiveMessage);
+    socket.on("message_received", handleMessageReceived);
     socket.on("user_typing", handleUserTyping);
     socket.on("user_status_change", handleUserStatusChange);
+    socket.on("unread_counts_update", handleUnreadCountsUpdate);
+    socket.on("conversation_updated", handleConversationUpdated);
 
     return () => {
       socket.off("receive_message", handleReceiveMessage);
+      socket.off("message_received", handleMessageReceived);
       socket.off("user_typing", handleUserTyping);
       socket.off("user_status_change", handleUserStatusChange);
+      socket.off("unread_counts_update", handleUnreadCountsUpdate);
+      socket.off("conversation_updated", handleConversationUpdated);
     };
   }, [token, currentUser, socketConnected, selectedUser]);
+
+
+  // Add selected user to conversations if not already there (for new chats)
+  useEffect(() => {
+    if (selectedUser && (!conversations.find(c => c.user?._id === selectedUser._id))) {
+      // Only add if it's a brand new conversation (no messages)
+      if (messages.length === 0) {
+        setConversations(prev => [
+          {
+            user: selectedUser,
+            lastMessage: "No messages yet",
+            lastMessageTime: new Date()
+          },
+          ...prev
+        ]);
+      }
+    }
+  }, [selectedUser, conversations, messages]);
 
   // Join chat room when user is selected
   useEffect(() => {
@@ -154,7 +296,6 @@ export default function Chat() {
 
     const joinChat = () => {
       socket.emit("join_chat", { 
-        senderId: currentUser._id, 
         receiverId: selectedUser._id 
       });
     };
@@ -162,7 +303,11 @@ export default function Chat() {
     if (socketConnected) {
       joinChat();
     } else {
-      onSocketConnected(joinChat);
+      onSocketConnected(() => {
+        if (currentUser) {
+          joinChat();
+        }
+      });
     }
   }, [selectedUser, currentUser, socketConnected]);
 
@@ -172,58 +317,186 @@ export default function Chat() {
     
     const fetchConversations = async () => {
       try {
+        console.log('🔄 Fetching conversations...');
         const res = await fetch(`${API_URL}/api/messages/conversations`, {
           headers: { Authorization: `Bearer ${token}` }
         });
+        
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: Failed to fetch conversations`);
+        }
+        
         const data = await res.json();
-        setConversations(data);
+        console.log('📋 Conversations fetched:', data.length);
+        console.log('📋 First conversation sample:', data[0]);
+        
+        // Ensure all conversations have proper user structure
+        const processedConversations = (data || []).map(conv => {
+          if (!conv.user?._id) {
+            console.warn('⚠️  Conversation missing user._id:', conv);
+          }
+          return {
+            ...conv,
+            user: {
+              ...conv.user,
+              skills: conv.user?.skills || [],
+              isOnline: conv.user?.isOnline || false
+            }
+          };
+        });
+        
+        setConversations(processedConversations);
+        
+        // Build unread counts from conversations
+        const counts = {};
+        processedConversations.forEach(conv => {
+          if (conv.unreadCount > 0) {
+            counts[conv.user._id] = conv.unreadCount;
+          }
+        });
+        setUnreadCounts(counts);
+        
       } catch (err) {
-        console.error("Error fetching conversations:", err);
+        console.error("❌ Error fetching conversations:", err);
+        setConversations([]);
       }
     };
 
     fetchConversations();
-  }, [token]);
-
-  // Fetch all users for new chat
-  useEffect(() => {
-    if (!token) return;
     
-    const fetchUsers = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/users/all`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const data = await res.json();
-        setAllUsers(data.map(u => ({ ...u, isOnline: false })));
-        setIsLoading(false);
-      } catch (err) {
-        console.error("Error fetching users:", err);
-        setIsLoading(false);
-      }
-    };
-
-    fetchUsers();
+    // Refresh conversations every 20 seconds
+    const interval = setInterval(fetchConversations, 20000);
+    return () => clearInterval(interval);
   }, [token]);
+
+  // Refresh unread counts periodically
+  useEffect(() => {
+    if (!token || !currentUser) return;
+
+    // Fetch unread counts on init
+    if (!unreadCountsFetchRef.current) {
+      unreadCountsFetchRef.current = true;
+      
+      const fetchUnreadCounts = async () => {
+        try {
+          const res = await fetch(`${API_URL}/api/messages/unread-counts`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          if (res.ok) {
+            const counts = await res.json();
+            setUnreadCounts(counts);
+          }
+        } catch (err) {
+          console.error("Error fetching unread counts:", err);
+        }
+      };
+      
+      fetchUnreadCounts();
+    }
+
+    // Request unread counts from socket server
+    if (socketConnected) {
+      socket.emit("request_unread_counts", currentUser._id);
+    }
+  }, [token, currentUser, socketConnected]);
+
+
+  // Initialize available users from conversations only (no separate fetch)
+  useEffect(() => {
+    if (conversations.length > 0) {
+      const users = conversations.map(c => c.user).filter(u => u && u._id);
+      setAvailableUsers(users);
+      setIsLoading(false);
+    } else {
+      setAvailableUsers([]);
+      setIsLoading(false);
+    }
+  }, [conversations]);
 
   // Fetch messages when user is selected
   useEffect(() => {
-    if (!token || !selectedUser) return;
+    if (!token || !selectedUser) {
+      console.log('⏭️  Skipping message fetch - no token or user selected');
+      return;
+    }
+    
+    // Clear message IDs ref when switching users
+    messageIdsRef.current.clear();
+    
+    const userId = selectedUser._id || selectedUser.id;
+    
+    console.log("🔍 Selected user object:", selectedUser);
+    console.log("🔍 Extracted userId:", userId);
+    
+    if (!userId) {
+      console.error("❌ Selected user does not have a valid ID. User object:", selectedUser);
+      setMessages([]);
+      setLoadingMessages(false);
+      return;
+    }
     
     const fetchMessages = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/messages/${selectedUser._id}`, {
+        setLoadingMessages(true);
+        console.log('📥 Fetching messages for user:', userId);
+        
+        const res = await fetch(`${API_URL}/api/messages/${userId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
+        
+        if (!res.ok) {
+          console.error('❌ Messages fetch failed:', res.status, res.statusText);
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+        
         const data = await res.json();
-        setMessages(data);
+        console.log('✅ Messages fetched:', data ? data.length : 0);
+        
+        // Ensure all messages have proper structure with populated sender/receiver
+        const processedMessages = (data || []).map(msg => {
+          const msgId = msg._id?.toString();
+          if (msgId) {
+            messageIdsRef.current.add(msgId);
+          }
+          return {
+            ...msg,
+            sender: msg.sender || { _id: msg.sender?._id || msg.sender, name: "User", photo: null },
+            receiver: msg.receiver || { _id: msg.receiver?._id || msg.receiver },
+            createdAt: msg.createdAt || new Date().toISOString()
+          };
+        });
+        
+        setMessages(processedMessages);
+        
+        // Mark messages as read
+        try {
+          await fetch(`${API_URL}/api/messages/mark-read/${userId}`, {
+            method: "PATCH",
+            headers: { Authorization: `Bearer ${token}` }
+          });
+        } catch (readErr) {
+          console.error("Error marking messages as read:", readErr);
+        }
+        
+        // Clear unread count for this user
+        setUnreadCounts(prev => ({
+          ...prev,
+          [userId]: 0
+          
+        }));
+        
+        setLoadingMessages(false);
       } catch (err) {
-        console.error("Error fetching messages:", err);
+        console.error("❌ Error fetching messages:", err);
+        setMessages([]);
+        setLoadingMessages(false);
       }
     };
 
     fetchMessages();
   }, [token, selectedUser]);
+
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -244,47 +517,83 @@ export default function Chat() {
   };
 
   const handleSend = async () => {
-    if (!newMessage.trim() || !selectedUser) return;
+    if (!newMessage.trim() || !selectedUser) {
+      console.warn("Cannot send: message empty or no user selected");
+      return;
+    }
 
     const messageText = newMessage.trim();
+    const receiverId = selectedUser._id || selectedUser.id;
+
+    if (!receiverId) {
+      console.error("Cannot send message: no valid receiverId", selectedUser);
+      return;
+    }
 
     try {
-      const chatId = [currentUser._id, selectedUser._id].sort().join("_");
-      
+      const chatId = [currentUser._id, receiverId].sort().join("_");
+
+      // Generate clientMessageId to allow server-side dedupe and idempotent saves
+      const clientMessageId = `${currentUser._id}_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+
+      // Create optimistic pending message locally
+      const pendingMessage = {
+        _id: clientMessageId,
+        sender: { _id: currentUser._id, name: currentUser.name, photo: currentUser.photo },
+        receiver: { _id: receiverId },
+        text: messageText,
+        createdAt: new Date().toISOString(),
+        isRead: false,
+        clientMessageId,
+        isPending: true
+      };
+
+      // Add pending message immediately
+      setMessages(prev => [...prev, pendingMessage]);
+
+      console.log("📤 Sending message via socket to:", receiverId, { clientMessageId });
+
+      // Emit via socket (server uses authenticated socket.userId)
       safeEmit("send_message", {
-        senderId: currentUser._id,
-        receiverId: selectedUser._id,
+        receiverId: receiverId,
         message: messageText,
-        chatId: chatId
+        chatId: chatId,
+        clientMessageId
       });
 
-      setMessages(prev => [...prev, {
-        _id: Date.now(),
-        sender: { _id: currentUser._id },
-        text: messageText,
-        createdAt: new Date()
-      }]);
-      
+      // Clear input
       setNewMessage("");
       
       safeEmit("stop_typing", {
-        senderId: currentUser._id,
-        receiverId: selectedUser._id
+        receiverId: receiverId
       });
       
+      // Update conversations last message
       setConversations(prev => {
-        const existing = prev.find(c => c.user?._id === selectedUser._id);
+        const existing = prev.find(c => c.user?._id === receiverId);
         if (existing) {
           return prev.map(c => 
-            c.user?._id === selectedUser._id 
-              ? { ...c, lastMessage: messageText, lastMessageTime: new Date() }
+            c.user?._id === receiverId 
+              ? { 
+                  ...c, 
+                  lastMessage: messageText, 
+                  lastMessageTime: new Date().toISOString() 
+                }
               : c
-          );
+          ).sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
         }
-        return [{ user: selectedUser, lastMessage: messageText }, ...prev];
+        return [{ user: selectedUser, lastMessage: messageText, lastMessageTime: new Date().toISOString(), unreadCount: 0 }, ...prev];
+      });
+      
+      // Emit conversation update
+      safeEmit("conversation_update", {
+        senderId: currentUser._id,
+        receiverId: receiverId,
+        lastMessage: messageText,
+        lastMessageTime: new Date().toISOString()
       });
     } catch (err) {
-      console.error("Error sending message:", err);
+      console.error("❌ Error sending message:", err);
     }
   };
 
@@ -293,7 +602,6 @@ export default function Chat() {
     
     if (selectedUser && currentUser) {
       safeEmit("typing", {
-        senderId: currentUser._id,
         receiverId: selectedUser._id
       });
 
@@ -302,7 +610,6 @@ export default function Chat() {
       }
       typingTimeoutRef.current = setTimeout(() => {
         safeEmit("stop_typing", {
-          senderId: currentUser._id,
           receiverId: selectedUser._id
         });
       }, 2000);
@@ -317,18 +624,34 @@ export default function Chat() {
   };
 
   const selectUser = (user) => {
+    console.log("👤 Selecting user:", user);
+    
+    if (!user || !user._id) {
+      console.error("❌ Cannot select user - invalid user object:", user);
+      toast.error("Invalid user. Please try again.");
+      return;
+    }
+    
     setSelectedUser(user);
     setShowNewChat(false);
     setSearchTerm("");
     setIsTyping(false);
-    // Clear unread count
+    
+    // Clear unread count immediately
     setUnreadCounts(prev => ({ ...prev, [user._id]: 0 }));
+    
+    // Update conversations to remove unread badge
+    setConversations(prev => 
+      prev.map(c => 
+        c.user?._id === user._id 
+          ? { ...c, unreadCount: 0 }
+          : c
+      )
+    );
   };
 
-  const filteredUsers = allUsers.filter(u => 
-    u._id !== currentUser?._id &&
-    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) &&
-    !conversations.some(c => c.user?._id === u._id)
+  const filteredUsers = availableUsers.filter(u => 
+    u.name?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const getTimeString = (date) => {
@@ -566,7 +889,7 @@ return (
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                     </svg>
                   </div>
-                  <h3 className="font-bold text-xl text-white">New Conversation</h3>
+                  <h3 className="font-bold text-xl text-white">Your Conversations</h3>
                 </div>
                 <button 
                   onClick={() => setShowNewChat(false)} 
@@ -585,7 +908,7 @@ return (
                 </svg>
                 <input
                   type="text"
-                  placeholder="Search users by name..."
+                  placeholder="Search conversations..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-12 pr-4 py-3.5 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-transparent transition-all"
@@ -599,14 +922,17 @@ return (
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                       </svg>
                     </div>
-                    <p className="text-slate-500 font-medium">No users found</p>
-                    <p className="text-slate-400 text-sm">Try a different search term</p>
+                    <p className="text-slate-500 font-medium">No conversations yet</p>
+                    <p className="text-slate-400 text-sm">Start by selecting a user from your conversations</p>
                   </div>
                 ) : (
                   filteredUsers.map((user) => (
                     <button
                       key={user._id}
-                      onClick={() => selectUser(user)}
+                      onClick={() => {
+                        selectUser(user);
+                        setShowNewChat(false);
+                      }}
                       className="w-full p-4 flex items-center gap-4 hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 rounded-2xl transition-all group"
                     >
                       <div className="relative">
@@ -630,11 +956,11 @@ return (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {user.skills?.slice(0, 3).map((skill, idx) => (
                             <span key={idx} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                              {skill.name}
+                              {skill.name || skill}
                             </span>
                           ))}
                           {(!user.skills || user.skills.length === 0) && (
-                            <span className="text-xs text-slate-400">No skills added yet</span>
+                            <span className="text-xs text-slate-400">No skills</span>
                           )}
                         </div>
                       </div>
@@ -705,7 +1031,14 @@ return (
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {messages.length === 0 ? (
+              {loadingMessages ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="animate-spin w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                    <p className="text-slate-500">Loading messages...</p>
+                  </div>
+                </div>
+              ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
                   <div className="w-24 h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-3xl flex items-center justify-center mb-4">
                     <svg className="w-12 h-12 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -844,4 +1177,3 @@ return (
     </div>
   );
 }
-

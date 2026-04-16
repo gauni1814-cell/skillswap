@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import toast from 'react-hot-toast';
 import { Link, useNavigate } from "react-router-dom";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -70,7 +71,7 @@ export default function Login() {
         const data = await res.json();
 
         if (!res.ok) {
-          alert(data.msg || "Login failed");
+          toast.error(data.msg || "Login failed");
           setIsLoading(false);
           return;
         }
@@ -81,14 +82,12 @@ export default function Login() {
         });
         const userData = await userRes.json();
 
-        // Use AuthContext login
-        login(data.token, userData, () => {
-          navigate(from, { replace: true });
-        });
+        // Use AuthContext login (it will redirect based on role)
+        login(data.token, userData);
 
       } catch (error) {
         console.error("Login error:", error);
-        alert("Server error");
+        toast.error("Server error");
         setIsLoading(false);
       }
     }
@@ -111,7 +110,7 @@ export default function Login() {
       const data = await res.json();
 
       if (!res.ok) {
-        alert(data.msg || "Google login failed");
+        toast.error(data.msg || "Google login failed");
         setIsLoading(false);
         return;
       }
@@ -123,13 +122,11 @@ export default function Login() {
       const userData = await userRes.json();
 
       // Use AuthContext login with full user data including name
-      login(data.token, userData, () => {
-        navigate(from, { replace: true });
-      });
+      login(data.token, userData);
     } catch (error) {
       console.error("Google Login error:", error);
       if (error.code !== "auth/popup-closed-by-user") {
-        alert("Google login failed. Please try again.");
+        toast.error("Google login failed. Please try again.");
       }
       setIsLoading(false);
     }

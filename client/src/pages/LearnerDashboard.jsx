@@ -24,8 +24,7 @@ export default function LearnerDashboard() {
   const [learningHistory, setLearningHistory] = useState([]);
   const [historyStats, setHistoryStats] = useState({});
 
-  // Skill Requests
-  const [skillRequests, setSkillRequests] = useState([]);
+  // Skill Requests (not used in this view yet)
 
   const categories = ["all", "technology", "design", "business", "language", "music", "art", "sports"];
 
@@ -34,7 +33,7 @@ export default function LearnerDashboard() {
       navigate("/");
     }
     fetchDashboardData();
-  }, []);
+  }, [navigate, user]);
 
   const fetchDashboardData = async () => {
     const token = localStorage.getItem("token");
@@ -75,8 +74,8 @@ export default function LearnerDashboard() {
       }
 
       if (requestsRes.ok) {
-        const data = await requestsRes.json();
-        setSkillRequests(Array.isArray(data) ? data : []);
+        await requestsRes.json();
+        // requests are available but not stored in local state here
       }
     } catch (err) {
       console.error("Error fetching dashboard data:", err);
@@ -122,33 +121,7 @@ export default function LearnerDashboard() {
     setFilteredMentors(filtered);
   };
 
-  const handleSendRequest = async (mentorId, skillId) => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/match", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          mentorId,
-          skillId,
-          type: "learner_request"
-        })
-      });
-
-      if (response.ok) {
-        alert("Request sent successfully!");
-        fetchDashboardData();
-      } else {
-        setError("Failed to send request");
-      }
-    } catch (err) {
-      console.error("Error sending request:", err);
-      setError("Failed to send request");
-    }
-  };
+  // (Feature) Send request handled from skill details or separate flow
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 py-8">

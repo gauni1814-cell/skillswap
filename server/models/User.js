@@ -69,10 +69,10 @@ const userSchema = new mongoose.Schema(
       default: "local",
     },
 
-    // Role (learner or mentor)
+    // Role (learner, mentor or admin)
     role: { 
       type: String, 
-      enum: ["user", "learner", "mentor"],
+      enum: ["user", "learner", "mentor", "admin"],
       required: true,
       default: "learner"
     },
@@ -137,6 +137,9 @@ const userSchema = new mongoose.Schema(
 
     // 💬 Realtime Chat
     isOnline: { type: Boolean, default: false },
+
+    // Account control
+    isBlocked: { type: Boolean, default: false },
 
     // 🔗 Google OAuth Tokens
     googleTokens: {

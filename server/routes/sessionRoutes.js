@@ -1,12 +1,26 @@
+
 const express = require("express");
 const router = express.Router();
+
 const auth = require("../middleware/auth");
-const { createSession, completeSession, getSessions, acceptSession, updateMeetingLink } = require("../controllers/sessionController");
+const { requireRole } = require("../middleware/roles");
+const validate = require('../middleware/validate');
+const { scheduleSession } = require('../validators/sessionValidators');
 
-router.post("/", auth, createSession);          // create new session request
-router.put("/accept", auth, acceptSession);     // teacher accepts and generates meeting
-router.put("/complete", auth, completeSession); // update feedback & complete
-router.put("/update-link", auth, updateMeetingLink); // teacher updates meeting link
-router.get("/", auth, getSessions);             // get all sessions for user
+const {
+  createSessionRequest,
+  getSessions,
+  acceptAndSchedule,
+  rejectSession,
+  completeSession,
+  updateMeetingLink
+} = require("../controllers/sessionController");
 
+router.post("/", auth, requireRole('learner'), createSessionRequest);
+router.get("/", auth, getSessions);
+router.put("/accept", auth, requireRole('mentor'), scheduleSession, validate, acceptAndSchedule);
+router.put("/reject", auth, requireRole('mentor'), rejectSession);
+router.put("/complete", auth, completeSession);
+router.put("/update-link", auth, requireRole('mentor'), updateMeetingLink);
 module.exports = router;
+

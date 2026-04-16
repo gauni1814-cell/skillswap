@@ -1,180 +1,264 @@
-const User = require("../models/User");
 const Session = require("../models/Session");
+const Skill = require("../models/Skill");
+const User = require("../models/User");
+const { generateMeetingLink } = require("../services/meeting");
+const { sendMail } = require("../services/email");
 
-// Get all sessions for current user
+/* =========================================
+   GET ALL SESSIONS
+========================================= */
 exports.getSessions = async (req, res) => {
   try {
+    const userId = req.user.id;
+
     const sessions = await Session.find({
-      $or: [{ teacher: req.user.id }, { learner: req.user.id }]
-    }).populate("teacher learner", "name photo email");
+      $or: [{ learner: userId }, { mentor: userId }]
+    })
+      .populate("learner", "name email photo")
+      .populate("mentor", "name email photo")
+      .populate("skillTopic", "skillName")
+      .sort({ createdAt: -1 });
+
     res.json(sessions);
-  } catch (err) {
-    res.status(500).json({ msg: err.message });
+  } catch (error) {
+    res.status(500).json({ msg: "Failed to fetch sessions" });
   }
 };
 
-// Create new session request (learner sends request to teacher)
-exports.createSession = async (req, res, next) => {
-  console.log('[SESSION CONTROLLER] createSession called');
-  console.log('[SESSION CONTROLLER] req.user:', req.user);
-  console.log('[SESSION CONTROLLER] req.body:', req.body);
-  
-  const { teacherId, skill, date, time } = req.body;
+/* =========================================
+   LEARNER SEND REQUEST ONLY
+========================================= */
+exports.createSessionRequest = async (req, res) => {
   try {
-    console.log('[SESSION CONTROLLER] Creating session with:', { teacherId, learnerId: req.user.id, skill, date, time });
-    
+    const learnerId = req.user.id;
+    const { teacherId, skill, message } = req.body;
+
+    const skillDoc = await Skill.findOne({ skillName: skill });
+
+    if (!skillDoc) {
+      return res.status(404).json({ msg: "Skill not found" });
+    }
+
     const session = await Session.create({
-      teacher: teacherId,
-      learner: req.user.id,
-      skill,
-      date,
-      time,
-      status: "pending",
-      liveLink: null
+      learner: learnerId,
+      mentor: teacherId,
+      skillTopic: skillDoc._id,
+      message: message || "",
+      status: "pending"
     });
 
-    // Populate teacher and learner details
-    await session.populate("teacher learner", "name photo email");
+    const populated = await Session.findById(session._id)
+      .populate("learner", "name email photo")
+      .populate("mentor", "name email photo")
+      .populate("skillTopic", "skillName");
 
-    console.log('[SESSION CONTROLLER] Session created successfully:', session._id);
-    res.json({ message: "Session request sent", session });
-  } catch (err) {
-    console.error('[SESSION CONTROLLER] Error creating session:', err);
-    res.status(500).json({ msg: err.message });
-  }
-};
-
-// Accept session (teacher accepts and generates meeting link)
-exports.acceptSession = async (req, res) => {
-  const { sessionId } = req.body;
-  try {
-    const session = await Session.findById(sessionId);
-    if (!session) return res.status(404).json({ msg: "Session not found" });
-
-    // Verify the current user is the teacher
-    if (session.teacher.toString() !== req.user.id) {
-      return res.status(403).json({ msg: "Only the teacher can accept this session" });
-    }
-
-    // Get teacher details
-    const teacher = await User.findById(req.user.id);
-
-    // Parse date and time
-    const startTime = new Date(`${session.date}T${session.time}:00`);
-    const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1 hour session
-    
-    const meetingTitle = `SkillSwap Session: ${session.skill}`;
-    const meetingDescription = `Skill exchange session for ${session.skill} between ${teacher.name} and learner`;
-
-    let liveLink = null;
-    let googleEventId = null;
-
-    // Try to create Google Meet link
+    res.status(201).json({
+      msg: "Request sent successfully",
+      session: populated
+    });
+    // Notify mentor by email
     try {
-      const { createGoogleMeetEvent } = require("../services/googleOAuth");
-      const event = await createGoogleMeetEvent(
-        meetingTitle,
-        meetingDescription,
-        startTime,
-        endTime
-      );
-      liveLink = event.conferenceData?.entryPoints?.[0]?.uri || null;
-      googleEventId = event.id;
-      console.log("Google Meet created successfully:", liveLink);
-    } catch (meetError) {
-      console.error("Failed to create Google Meet link:", meetError.message);
-      console.error("Full error:", meetError);
-      // Fallback: Generate a unique meeting ID that users can use to join
-      // This creates a direct meet link with a random ID that can be used immediately
-      const randomId = Math.random().toString(36).substring(2, 10) + '-' + 
-                       Math.random().toString(36).substring(2, 6);
-      liveLink = `https://meet.google.com/${randomId}`;
-      console.log("Using fallback meeting link:", liveLink);
+      const mentor = populated.mentor;
+      const learner = populated.learner;
+      const skillName = populated.skillTopic?.skillName || '';
+      const templates = require('../services/emailTemplates');
+      const html = templates.newRequestNotification({ mentorName: mentor.name || 'Mentor', learnerName: learner.name || 'Learner', skill: skillName, message: message });
+      await sendMail({ to: mentor.email, subject: 'New Session Request', html });
+    } catch (mailErr) {
+      console.warn('Failed to send new request email to mentor:', mailErr && mailErr.message);
+    }
+  } catch (error) {
+    res.status(500).json({ msg: "Failed to send request" });
+  }
+};
+
+/* =========================================
+   MENTOR ACCEPT + SCHEDULE
+========================================= */
+exports.acceptAndSchedule = async (req, res) => {
+  try {
+    const mentorId = req.user.id;
+    const { sessionId, date, time, meetingLink } = req.body;
+
+    const session = await Session.findById(sessionId);
+
+    if (!session) {
+      return res.status(404).json({ msg: "Session not found" });
     }
 
-    // Store the meeting link
-    session.liveLink = liveLink;
-    session.googleEventId = googleEventId;
-    session.status = "accepted";
-    
-    await session.save();
-    await session.populate("teacher learner", "name photo email");
+    if (session.mentor.toString() !== mentorId) {
+      return res.status(403).json({ msg: "Unauthorized" });
+    }
 
-    res.json({ message: "Session accepted", session });
-  } catch (err) {
-    console.error("Accept Session Error:", err);
-    res.status(500).json({ msg: err.message });
+    // Validate date/time inputs
+    if (!date || !time) {
+      return res.status(400).json({ msg: "Date and time are required" });
+    }
+
+    const parsed = new Date(`${date}T${time}`);
+    if (isNaN(parsed.getTime())) {
+      return res.status(400).json({ msg: "Invalid date or time format" });
+    }
+
+    const now = new Date();
+    if (parsed <= now) {
+      return res.status(400).json({ msg: "Cannot schedule sessions in the past" });
+    }
+
+    session.scheduledAt = parsed;
+
+    // Generate meeting link if not provided
+    session.meetingLink = meetingLink && meetingLink.trim() !== "" ? meetingLink : generateMeetingLink();
+    session.status = "scheduled";
+
+    await session.save();
+
+    const updated = await Session.findById(sessionId)
+      .populate("learner", "name email photo")
+      .populate("mentor", "name email photo")
+      .populate("skillTopic", "skillName");
+
+    // Send email notification to learner
+    try {
+      const learner = updated.learner;
+      const mentor = updated.mentor;
+      const skill = updated.skillTopic?.skillName || "";
+      const dateStr = updated.scheduledAt.toLocaleString();
+      const templates = require('../services/emailTemplates');
+      const html = templates.sessionScheduledEmail({ learnerName: learner.name, mentorName: mentor.name, skill, dateStr, meetingLink: updated.meetingLink });
+      await sendMail({ to: learner.email, subject: 'Session Scheduled', html });
+    } catch (mailErr) {
+      console.warn('Failed to send session email:', mailErr && mailErr.message ? mailErr.message : mailErr);
+    }
+
+    // Also create a chat message with the meeting link (so learner receives link in chat)
+    try {
+      const Message = require('../models/Message');
+      const socketServer = require('../socket');
+      const senderId = updated.mentor._id.toString();
+      const receiverId = updated.learner._id.toString();
+      const chatId = [senderId, receiverId].sort().join('_');
+      const text = `Session scheduled by ${updated.mentor.name} for ${updated.skillTopic?.skillName || ''} at ${updated.scheduledAt.toLocaleString()}. Join: ${updated.meetingLink}`;
+
+      const msgDoc = await Message.create({ chatId, sender: senderId, receiver: receiverId, text, isRead: false });
+
+      // populate sender/receiver for emit
+      await msgDoc.populate('sender', 'name photo');
+      await msgDoc.populate('receiver', 'name photo');
+
+      const io = socketServer.getIO && socketServer.getIO();
+      const roomId = chatId;
+      if (io) {
+        io.to(roomId).emit('receive_message', msgDoc);
+        io.to(`user_${receiverId}`).emit('message_received', { from: senderId, message: msgDoc });
+      }
+    } catch (msgErr) {
+      console.warn('Failed to send chat message with meeting link:', msgErr && msgErr.message ? msgErr.message : msgErr);
+    }
+
+    res.json({ msg: "Session scheduled successfully", session: updated });
+  } catch (error) {
+    res.status(500).json({ msg: "Failed to schedule session" });
   }
 };
 
-// Send message in session
-exports.sendMessage = async (req, res) => {
-  const { sessionId, text } = req.body;
+/* =========================================
+   REJECT REQUEST
+========================================= */
+exports.rejectSession = async (req, res) => {
   try {
+    const mentorId = req.user.id;
+    const { sessionId } = req.body;
+
     const session = await Session.findById(sessionId);
-    if (!session) return res.status(404).json({ msg: "Session not found" });
 
-    session.messages.push({
-      sender: req.user.id,
-      text,
-      createdAt: new Date()
-    });
+    if (!session) {
+      return res.status(404).json({ msg: "Session not found" });
+    }
 
+    if (session.mentor.toString() !== mentorId) {
+      return res.status(403).json({ msg: "Unauthorized" });
+    }
+
+    session.status = "rejected";
     await session.save();
-    res.json(session);
-  } catch (err) {
-    res.status(500).json({ msg: err.message });
+
+    // Notify learner by email
+    try {
+      const populated = await Session.findById(sessionId)
+        .populate('learner', 'name email')
+        .populate('mentor', 'name');
+
+      const learner = populated.learner;
+      const mentor = populated.mentor;
+
+      try {
+        const templates = require('../services/emailTemplates');
+        const html = templates.requestRejectedEmail({ learnerName: learner.name, mentorName: mentor.name, skill: populated.skillTopic?.skillName || '' });
+        await sendMail({ to: learner.email, subject: 'Request Rejected', html });
+      } catch (e) {
+        console.warn('Failed to send rejection email:', e && e.message);
+      }
+    } catch (e) {
+      console.warn('Failed to send rejection email:', e && e.message);
+    }
+
+    res.json({ msg: "Request rejected" });
+  } catch (error) {
+    res.status(500).json({ msg: "Failed to reject request" });
   }
 };
 
-// Complete session + rating + feedback
+/* =========================================
+   COMPLETE SESSION
+========================================= */
 exports.completeSession = async (req, res) => {
-  const { sessionId, rating, feedback } = req.body;
   try {
+    const { sessionId } = req.body || req.params;
     const session = await Session.findById(sessionId);
     if (!session) return res.status(404).json({ msg: "Session not found" });
 
     session.status = "completed";
-    session.rating = rating;
-    session.feedback = feedback;
-
+    session.completedAt = new Date();
     await session.save();
 
-    // Update teacher trustScore
-    const teacher = await User.findById(session.teacher);
-    if (teacher) {
-      const currentScore = teacher.trustScore || 0;
-      teacher.trustScore = ((currentScore + rating) / 2).toFixed(2);
-      await teacher.save();
+    // Increment learner's sessionsCompleted
+    try {
+      await User.findByIdAndUpdate(session.learner, { $inc: { sessionsCompleted: 1 } });
+    } catch (e) {
+      console.error("Error incrementing sessionsCompleted:", e.message);
     }
 
-    res.json({ message: "Session completed", session });
+    res.json({ msg: "Session completed", session });
   } catch (err) {
     res.status(500).json({ msg: err.message });
   }
 };
 
-// Update meeting link (teacher can manually update the meeting link)
+/* =========================================
+   UPDATE MEETING LINK
+   (mentor can update a meeting URL after scheduling)
+========================================= */
 exports.updateMeetingLink = async (req, res) => {
-  const { sessionId, liveLink } = req.body;
   try {
+    const userId = req.user.id;
+    const { sessionId, meetingLink } = req.body;
+
+    if (!sessionId) return res.status(400).json({ msg: "sessionId required" });
+
     const session = await Session.findById(sessionId);
     if (!session) return res.status(404).json({ msg: "Session not found" });
 
-    // Verify the current user is the teacher
-    if (session.teacher.toString() !== req.user.id) {
-      return res.status(403).json({ msg: "Only the teacher can update the meeting link" });
+    // Only mentor for this session may update the link
+    if (session.mentor.toString() !== userId) {
+      return res.status(403).json({ msg: "Unauthorized" });
     }
 
-    // Update the meeting link
-    session.liveLink = liveLink;
-    
+    session.meetingLink = meetingLink || "";
     await session.save();
-    await session.populate("teacher learner", "name photo email");
 
-    res.json({ message: "Meeting link updated", session });
+    res.json({ msg: "Meeting link updated", session });
   } catch (err) {
-    console.error("Update Meeting Link Error:", err);
     res.status(500).json({ msg: err.message });
   }
 };

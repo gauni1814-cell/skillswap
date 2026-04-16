@@ -113,12 +113,22 @@ exports.register = async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
 
     // create user with role
-    await User.create({
+    const newUser = await User.create({
       name: userName,
       email,
       password: hashed,
       role: role,
     });
+
+    // Send welcome email if SMTP configured
+    try {
+      const { sendMail } = require('../services/email');
+      const templates = require('../services/emailTemplates');
+      const html = templates.welcomeEmail({ name: newUser.name });
+      await sendMail({ to: newUser.email, subject: 'Welcome to SkillSwap', html });
+    } catch (mailErr) {
+      console.warn('Welcome email failed:', mailErr && mailErr.message ? mailErr.message : mailErr);
+    }
 
     res.status(201).json({
       success: true,

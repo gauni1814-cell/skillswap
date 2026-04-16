@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
+import toast from 'react-hot-toast';
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function Dashboard() {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   
   const [activeTab, setActiveTab] = useState("overview");
@@ -12,7 +13,6 @@ export default function Dashboard() {
   const [mentors, setMentors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchSkill, setSearchSkill] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("all");
 
   const isMentor = user?.isMentor;
   const isLearner = user?.isLearner;
@@ -71,13 +71,13 @@ export default function Dashboard() {
 
       if (response.ok) {
         fetchData();
-        alert("Session accepted successfully!");
+        toast.success("Session accepted successfully!");
       } else {
-        alert("Failed to accept session");
+        toast.error("Failed to accept session");
       }
     } catch (err) {
       console.error("Error accepting session:", err);
-      alert("Error accepting session");
+        toast.error("Error accepting session");
     }
   };
 
@@ -95,7 +95,7 @@ export default function Dashboard() {
 
       if (response.ok) {
         fetchData();
-        alert("Session rejected");
+        toast.success("Session rejected");
       }
     } catch (err) {
       console.error("Error rejecting session:", err);

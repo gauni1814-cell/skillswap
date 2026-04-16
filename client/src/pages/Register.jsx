@@ -1,4 +1,5 @@
 import { useState } from "react";
+import toast from 'react-hot-toast';
 import { Link, useNavigate } from "react-router-dom";
 import { authAPI } from "../services/api";
 
@@ -72,12 +73,12 @@ export default function Register() {
       });
 
       if (response.data.success) {
-        alert("Registration successful! Please login.");
+        toast.success("Registration successful! Please login.");
         navigate("/login");
       }
     } catch (err) {
       console.error("Registration error:", err);
-      alert(err.response?.data?.msg || "Registration failed");
+      toast.error(err.response?.data?.msg || "Registration failed");
     } finally {
       setIsLoading(false);
     }

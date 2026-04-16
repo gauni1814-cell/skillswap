@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import toast from 'react-hot-toast';
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -27,12 +28,21 @@ export default function MentorDashboard() {
     experienceLevel: "intermediate"
   });
 
+  // Scheduling modal state
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [schedulingSession, setSchedulingSession] = useState(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [meetingLink, setMeetingLink] = useState("");
+
+  const todayIsoDate = new Date().toISOString().split("T")[0];
+
   useEffect(() => {
     if (!user || user.role !== "mentor") {
       navigate("/");
     }
     fetchDashboardData();
-  }, []);
+  }, [navigate, user]);
 
   const fetchDashboardData = async () => {
     const token = localStorage.getItem("token");
@@ -133,13 +143,68 @@ export default function MentorDashboard() {
       });
 
       if (response.ok) {
-        fetchDashboardData();
+        const data = await response.json();
+        // Open schedule modal for the newly created session
+        if (data && data.session) {
+          setSchedulingSession(data.session);
+          setShowScheduleModal(true);
+        } else {
+          fetchDashboardData();
+        }
       } else {
         setError("Failed to accept request");
       }
     } catch (err) {
       console.error("Error accepting request:", err);
       setError("Failed to accept request");
+    }
+  };
+
+  const handleScheduleSession = async () => {
+    if (!schedulingSession) return;
+    if (!scheduleDate || !scheduleTime) {
+      toast.error("Please choose date and time");
+      return;
+    }
+
+    // Validate not scheduling in the past (including today's times)
+    const parsed = new Date(`${scheduleDate}T${scheduleTime}`);
+    const now = new Date();
+    if (isNaN(parsed.getTime())) {
+      toast.error('Invalid date or time');
+      return;
+    }
+    if (parsed <= now) {
+      toast.error('Cannot schedule sessions in the past');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`/api/session/accept`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ sessionId: schedulingSession._id, date: scheduleDate, time: scheduleTime, meetingLink })
+      });
+
+      if (res.ok) {
+        setShowScheduleModal(false);
+        setSchedulingSession(null);
+        setScheduleDate("");
+        setScheduleTime("");
+        setMeetingLink("");
+        fetchDashboardData();
+        toast.success('Session scheduled — link emailed and sent via chat');
+      } else {
+        const err = await res.json();
+        toast.error(err.msg || "Failed to schedule session");
+      }
+    } catch (err) {
+      console.error("Error scheduling session:", err);
+      toast.error("Failed to schedule session");
     }
   };
 
@@ -317,6 +382,33 @@ export default function MentorDashboard() {
                         >
                           <div className="flex justify-between items-start mb-3">
                             <div>
+                            {/* Schedule Modal */}
+                            {showScheduleModal && (
+                              <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+                                  <h3 className="text-lg font-semibold mb-4">Schedule Session</h3>
+                                  <p className="text-sm text-slate-600 mb-4">Student: <span className="font-medium">{schedulingSession?.learner?.name}</span></p>
+                                  <div className="space-y-3 mb-4">
+                                    <div>
+                                      <label className="block text-sm text-slate-700 mb-1">Date</label>
+                                      <input type="date" min={todayIsoDate} value={scheduleDate} onChange={(e)=>setScheduleDate(e.target.value)} className="w-full px-3 py-2 border rounded" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-sm text-slate-700 mb-1">Time</label>
+                                      <input type="time" value={scheduleTime} onChange={(e)=>setScheduleTime(e.target.value)} className="w-full px-3 py-2 border rounded" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-sm text-slate-700 mb-1">Meeting Link (Zoom/Google Meet)</label>
+                                      <input type="url" value={meetingLink} onChange={(e)=>setMeetingLink(e.target.value)} placeholder="https://meet.google.com/..." className="w-full px-3 py-2 border rounded" />
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-3 justify-end">
+                                    <button onClick={()=>{setShowScheduleModal(false); setSchedulingSession(null);}} className="px-4 py-2 bg-slate-200 rounded">Cancel</button>
+                                    <button onClick={handleScheduleSession} className="px-4 py-2 bg-green-600 text-white rounded">Schedule</button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                               <h4 className="font-semibold text-slate-900 text-lg">
                                 {request.learner?.name || "Unknown Learner"}
                               </h4>

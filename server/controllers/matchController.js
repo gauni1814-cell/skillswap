@@ -109,6 +109,9 @@ exports.getSentRequests = async (req, res) => {
 };
 
 // Accept a skill exchange request
+const { sendMail } = require("../services/email");
+const { generateMeetingLink } = require("../services/meeting");
+
 exports.acceptRequest = async (req, res) => {
   try {
     const request = await SkillRequest.findById(req.params.id);
@@ -131,12 +134,30 @@ exports.acceptRequest = async (req, res) => {
       mentor: request.mentor,
       skillTopic: request.skillTopic,
       skillRequest: request._id,
-      status: "scheduled"
+      // Newly created session remains pending scheduling until mentor sets date/time
+      status: "pending"
     });
 
     await newSession.save();
 
-    res.json({ message: "Request accepted", request, session: newSession });
+    const populatedSession = await Session.findById(newSession._id)
+      .populate('learner', 'name email photo')
+      .populate('mentor', 'name email photo')
+      .populate('skillTopic', 'skillName');
+
+    // Notify learner by email about acceptance and pending scheduling
+    try {
+      const learner = populatedSession.learner;
+      const mentor = populatedSession.mentor;
+      const skill = populatedSession.skillTopic?.skillName || '';
+      const templates = require('../services/emailTemplates');
+      const html = templates.requestAcceptedEmail({ learnerName: learner.name, mentorName: mentor.name, skill });
+      await sendMail({ to: learner.email, subject: 'Request Accepted', html });
+    } catch (mailErr) {
+      console.warn('Failed to send acceptance email:', mailErr && mailErr.message);
+    }
+
+    res.json({ message: "Request accepted", request, session: populatedSession });
   } catch (err) {
     res.status(500).json({ msg: err.message });
   }
@@ -158,6 +179,24 @@ exports.rejectRequest = async (req, res) => {
     request.status = "rejected";
     request.respondedAt = new Date();
     await request.save();
+
+    try {
+      await request.populate('learner', 'name email');
+      await request.populate('mentor', 'name');
+      const learner = request.learner;
+      const mentor = request.mentor;
+      const subject = 'Request Rejected';
+      const html = `
+        <div style="font-family: Arial, sans-serif;">
+          <p>Hello ${learner.name},</p>
+          <p>Your request with ${mentor.name} has been rejected.</p>
+          <p>Regards,<br/>Skill Swap Team</p>
+        </div>
+      `;
+      await sendMail({ to: learner.email, subject, html });
+    } catch (mailErr) {
+      console.warn('Failed to send rejection email:', mailErr && mailErr.message);
+    }
 
     res.json({ message: "Request rejected", request });
   } catch (err) {

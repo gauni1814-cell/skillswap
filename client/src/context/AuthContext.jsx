@@ -1,29 +1,25 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { useNavigate } from 'react-router-dom';
 import socket from "../socket";
+
+/* eslint-disable react-refresh/only-export-components */
 
 const AuthContext = createContext();
 
+// Initialize user from localStorage to avoid synchronously setting state inside effects
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  // Check for existing token on load
-  useEffect(() => {
-    const token = localStorage.getItem("token");
+  const navigate = useNavigate();
+  const [user, setUser] = useState(() => {
     const userData = localStorage.getItem("user");
-    
-    if (token && userData) {
-      try {
-        const parsedUser = JSON.parse(userData);
-        setUser(parsedUser);
-      } catch (e) {
-        console.error("Error parsing user data:", e);
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-      }
+    if (!userData) return null;
+    try {
+      return JSON.parse(userData);
+    } catch {
+      localStorage.removeItem("user");
+      return null;
     }
-    setLoading(false);
-  }, []);
+  });
+  const [loading] = useState(false);
 
   // Emit user online when user logs in
   useEffect(() => {
@@ -65,8 +61,16 @@ export const AuthProvider = ({ children }) => {
     if (userData._id) {
       socket.emit("user_online", userData._id);
     }
-    
-    navigate("/dashboard");
+    // If caller provided a navigate callback, prefer that
+    if (typeof navigate === 'function') {
+      try { navigate(); return; } catch (e) { /* ignore */ }
+    }
+
+    // Default role redirects using react-router navigate
+    if (userData.role === 'admin') return navigate('/admin');
+    if (userData.role === 'mentor') return navigate('/mentor-dashboard');
+    if (userData.role === 'learner') return navigate('/learner-dashboard');
+    return navigate('/dashboard');
   };
 
   const register = async (token, userData, navigate) => {
@@ -78,8 +82,13 @@ export const AuthProvider = ({ children }) => {
     if (userData._id) {
       socket.emit("user_online", userData._id);
     }
-    
-    navigate("/dashboard");
+    if (typeof navigate === 'function') {
+      try { navigate(); return; } catch (e) {}
+    }
+    if (userData.role === 'admin') return navigate('/admin');
+    if (userData.role === 'mentor') return navigate('/mentor-dashboard');
+    if (userData.role === 'learner') return navigate('/learner-dashboard');
+    return navigate('/dashboard');
   };
 
   const logout = (navigate) => {

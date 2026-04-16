@@ -15,6 +15,16 @@ import Matches from "./pages/Matches";
 import OAuthCallback from "./pages/OAuthCallback";
 import SkillDetails from "./pages/SkillDetails";
 import MentorProfile from "./pages/MentorProfile";
+import MentorDashboard from "./pages/MentorDashboard";
+import LearnerDashboard from "./pages/LearnerDashboard";
+import RoleProtectedRoute from "./components/RoleProtectedRoute";
+import AdminLayout from "./pages/admin/AdminLayout";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminUsers from "./pages/admin/AdminUsers";
+import AdminSessions from "./pages/admin/AdminSessions";
+import AdminSkills from "./pages/admin/AdminSkills";
+import AdminReviews from "./pages/admin/AdminReviews";
+import AdminSettings from "./pages/admin/AdminSettings";
 
 export default function App() {
   return (
@@ -77,6 +87,24 @@ export default function App() {
           />
 
           <Route
+            path="/mentor-dashboard"
+            element={
+              <RoleProtectedRoute allowedRoles={["mentor"]}>
+                <MentorDashboard />
+              </RoleProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/learner-dashboard"
+            element={
+              <RoleProtectedRoute allowedRoles={["learner"]}>
+                <LearnerDashboard />
+              </RoleProtectedRoute>
+            }
+          />
+
+          <Route
             path="/sessions"
             element={
               <ProtectedRoute>
@@ -114,6 +142,24 @@ export default function App() {
 
           {/* 🔁 Redirect unknown routes */}
           <Route path="*" element={<Navigate to="/" replace />} />
+
+          {/* Admin routes */}
+          <Route
+            path="/admin/*"
+            element={
+              <RoleProtectedRoute allowedRoles={["admin"]}>
+                <AdminLayout />
+              </RoleProtectedRoute>
+            }
+          >
+            <Route index element={<AdminDashboard />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="sessions" element={<AdminSessions />} />
+            <Route path="settings" element={<AdminSettings />} />
+            <Route path="skills" element={<AdminSkills />} />
+            <Route path="reports" element={<div>Reports (coming)</div>} />
+            <Route path="reviews" element={<AdminReviews />} />
+          </Route>
         </Routes>
       </main>
     </>

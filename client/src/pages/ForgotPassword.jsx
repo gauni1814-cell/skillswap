@@ -63,7 +63,7 @@ export default function ForgotPassword() {
       toast.success("OTP sent to your email!");
       setStep(2);
       setOtpTimer(60); // Start 60-second countdown
-    } catch (err) {
+    } catch {
       toast.error("Server error. Please try again later.");
     } finally {
       setIsLoading(false);
@@ -95,7 +95,7 @@ export default function ForgotPassword() {
       }
       toast.success("OTP verified! Enter your new password");
       setStep(3);
-    } catch (err) {
+    } catch {
       toast.error("Server error. Please try again later.");
     } finally {
       setIsLoading(false);
@@ -131,7 +131,7 @@ export default function ForgotPassword() {
       }
       toast.success("Password updated successfully!");
       setTimeout(() => navigate("/login"), 2000);
-    } catch (err) {
+    } catch {
       toast.error("Server error. Please try again later.");
     } finally {
       setIsLoading(false);

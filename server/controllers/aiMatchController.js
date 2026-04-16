@@ -9,10 +9,14 @@ exports.getAiMatches = async (req, res) => {
       .filter(s => s.type === "learn")
       .map(s => s.name.toLowerCase());
 
+    // Limit to 1000 teachers maximum to prevent memory issues
     const allTeachers = await User.find({
       _id: { $ne: me._id },
       "skills.type": "teach"
-    }).select("name skills trustScore");
+    })
+      .select("name skills trustScore")
+      .limit(1000) // Add limit to prevent memory overload
+
 
     const matches = [];
 
@@ -31,8 +35,9 @@ exports.getAiMatches = async (req, res) => {
 
     // sort by similarity + trustScore
     matches.sort((a, b) => b.similarity - a.similarity || b.teacher.trustScore - a.teacher.trustScore);
-
-    res.json(matches);
+    
+    // Limit results to top 100 matches
+    res.json(matches.slice(0, 100));
   } catch (err) {
     res.status(500).json({ msg: err.message });
   }
