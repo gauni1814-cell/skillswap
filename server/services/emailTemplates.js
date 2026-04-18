@@ -46,10 +46,10 @@ exports.sessionScheduledEmail = ({ learnerName, mentorName, skill, dateStr, meet
 exports.requestRejectedEmail = ({ learnerName, mentorName, skill }) => {
   return `
     <div style="font-family: Arial, sans-serif; padding:20px; max-width:600px;">
-      <h3 style="color:#EF4444;">Request Update</h3>
+      <h3 style="color:#EF4444;">Session Request Update</h3>
       <p>Hello ${learnerName},</p>
-      <p>We're sorry — your request for <strong>${skill}</strong> with <strong>${mentorName}</strong> was not accepted.</p>
-      <p>You can try requesting another mentor or browse similar skills.</p>
+      <p>Your request with <strong>${mentorName}</strong> for <strong>${skill}</strong> was declined.</p>
+      <p>You can request another mentor anytime via the SkillSwap marketplace.</p>
       <p style="color:#6B7280; font-size:13px; margin-top:18px;">Regards,<br/>SkillSwap Team</p>
     </div>
   `;

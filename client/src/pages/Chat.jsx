@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import socket, { isSocketConnected, onSocketConnected } from "../socket";
+import { useAuth } from "../context/AuthContext";
 import toast from 'react-hot-toast';
 
 // API Base URL - use empty string for relative URLs
@@ -10,9 +11,9 @@ export default function Chat() {
   const navigate = useNavigate();
   const { state } = useLocation();
   
-  // Check if user is logged in
+  // Use auth context instead of localStorage for consistent user state
+  const { user: currentUser, loading: authLoading } = useAuth();
   const token = localStorage.getItem("token");
-  const currentUser = JSON.parse(localStorage.getItem("user") || "null");
   
   const [conversations, setConversations] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -32,12 +33,13 @@ export default function Chat() {
   const messageIdsRef = useRef(new Set());
 
 
-  // Redirect if not logged in
+  // Redirect if not logged in (wait for auth to finish)
   useEffect(() => {
+    if (authLoading) return;
     if (!token || !currentUser) {
       navigate("/login");
     }
-  }, [token, currentUser, navigate]);
+  }, [token, currentUser, navigate, authLoading]);
 
   // Auto-select mentor if passed from MentorProfile or SkillDetails
   useEffect(() => {
@@ -84,6 +86,7 @@ export default function Chat() {
 
   // Initialize socket listeners
   useEffect(() => {
+    if (authLoading) return;
     if (!token || !currentUser) return;
 
     if (socketConnected) {
@@ -96,14 +99,21 @@ export default function Chat() {
       });
     }
 
+    const normalizeId = (v) => {
+      if (!v) return null;
+      if (typeof v === 'string') return v;
+      if (typeof v === 'object' && v._id) return String(v._id);
+      return String(v);
+    };
+
     const handleReceiveMessage = (data) => {
       console.log("📨 Received message event:", data);
       
-      const senderId = data.sender?._id || data.sender;
-      const receiverId = data.receiver?._id || data.receiver;
+      const senderId = normalizeId(data.sender) || normalizeId(data.sender?._id) || normalizeId(data.from);
+      const receiverId = normalizeId(data.receiver) || normalizeId(data.receiver?._id) || normalizeId(data.to);
       
       // Use _id for deduplication if available
-      const messageId = data._id?.toString();
+      const messageId = data._id ? String(data._id) : null;
       if (messageId && messageIdsRef.current.has(messageId)) {
         console.log("⏭️  Skipping duplicate message:", messageId);
         return;
@@ -136,12 +146,13 @@ export default function Chat() {
         });
       }
 
-      if (data._id) messageIdsRef.current.add(data._id.toString());
+      if (data._id) messageIdsRef.current.add(String(data._id));
 
       setMessages(prev => {
         // Check if message matches current conversation
-        const isFromSelected = senderId === selectedUser?._id;
-        const isToSelected = receiverId === selectedUser?._id;
+        const selId = selectedUser?._id ? String(selectedUser._id) : null;
+        const isFromSelected = senderId && selId && senderId === selId;
+        const isToSelected = receiverId && selId && receiverId === selId;
 
         console.log("🔍 Checking message relevance:", {
           senderId,
@@ -160,10 +171,10 @@ export default function Chat() {
 
           console.log("✅ Adding message to conversation");
           return [...prev, {
-            _id: data._id,
+            _id: String(data._id),
             sender: {
               _id: senderId,
-              name: data.sender?.name || "User",
+              name: data.sender?.name || (data.fromName || "User"),
               photo: data.sender?.photo
             },
             receiver: { _id: receiverId },
@@ -182,10 +193,10 @@ export default function Chat() {
     const handleMessageReceived = (data) => {
       // This event is for when messages are received and user needs unread count update
       
-      const senderId = data.from;
+      const senderId = normalizeId(data.from) || normalizeId(data.from?._id);
       
       // Update unread count for this user (only if not currently viewing this chat)
-      if (selectedUser?._id !== senderId) {
+      if (String(selectedUser?._id) !== String(senderId)) {
         setUnreadCounts(prev => ({
           ...prev,
           [senderId]: (prev[senderId] || 0) + 1
@@ -201,19 +212,19 @@ export default function Chat() {
           if (existingConv) {
             // Update existing conversation
             return prev.map(conv => 
-              conv.user?._id === senderId
+              String(conv.user?._id) === String(senderId)
                 ? {
                     ...conv,
                     lastMessage: data.message.text,
                     lastMessageTime: data.message.createdAt,
-                    unreadCount: selectedUser?._id === senderId ? 0 : (conv.unreadCount || 0) + 1
+                    unreadCount: String(selectedUser?._id) === String(senderId) ? 0 : (conv.unreadCount || 0) + 1
                   }
                 : conv
             ).sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
           } else {
             // Create new conversation entry
             const newConv = {
-              user: data.message.sender,
+              user: { ...data.message.sender, _id: String(data.message.sender?._id || data.message.sender) },
               lastMessage: data.message.text,
               lastMessageTime: data.message.createdAt,
               unreadCount: 1
@@ -455,14 +466,19 @@ export default function Chat() {
         
         // Ensure all messages have proper structure with populated sender/receiver
         const processedMessages = (data || []).map(msg => {
-          const msgId = msg._id?.toString();
+          const msgId = msg._id ? String(msg._id) : null;
           if (msgId) {
             messageIdsRef.current.add(msgId);
           }
+
+          const sender = msg.sender ? { ...msg.sender, _id: String(msg.sender._id || msg.sender) } : { _id: String(msg.sender?._id || msg.sender || ''), name: 'User', photo: null };
+          const receiver = msg.receiver ? { ...msg.receiver, _id: String(msg.receiver._id || msg.receiver) } : { _id: String(msg.receiver?._id || msg.receiver || '') };
+
           return {
             ...msg,
-            sender: msg.sender || { _id: msg.sender?._id || msg.sender, name: "User", photo: null },
-            receiver: msg.receiver || { _id: msg.receiver?._id || msg.receiver },
+            _id: msgId,
+            sender,
+            receiver,
             createdAt: msg.createdAt || new Date().toISOString()
           };
         });
@@ -865,7 +881,7 @@ return (
               Matches
             </button>
             <button 
-              onClick={() => navigate("/browse-skills")}
+              onClick={() => navigate("/browse")}
               className="flex-1 flex items-center justify-center gap-2 p-3 bg-white rounded-xl border border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-all text-sm font-medium text-slate-700"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1,4 +1,7 @@
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import toast from 'react-hot-toast';
 
 export default function SkillDetails() {
   const { state } = useLocation();
@@ -32,6 +35,48 @@ export default function SkillDetails() {
         fullMentor: m
       }))
     : [];
+
+  // Request modal state
+  const { user: currentUser } = useAuth();
+  const [modalMentor, setModalMentor] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const [requestMessage, setRequestMessage] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const openRequestModal = (m) => {
+    setModalMentor(m);
+    setShowModal(true);
+  };
+
+  const sendRequest = async () => {
+    if (!currentUser || currentUser.role !== 'learner') {
+      toast.error('Only learners can request sessions');
+      return;
+    }
+    setSending(true);
+    try {
+      const token = localStorage.getItem('token');
+      const body = { teacherId: modalMentor._id || modalMentor.id, skill: skillData?.skillName || skill.title, message: requestMessage };
+      const res = await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.msg || 'Failed to send request');
+      }
+      toast.success('Request sent to mentor');
+      setShowModal(false);
+      setRequestMessage('');
+      navigate('/chat', { state: { mentor: modalMentor, skill: skillData } });
+    } catch (err) {
+      console.error('Request error', err);
+      toast.error(err.message || 'Failed to send request');
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div className="pt-20 px-6 max-w-6xl mx-auto pb-12">
@@ -133,6 +178,16 @@ export default function SkillDetails() {
                 >
                   Select Mentor
                 </button>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => navigate(`/mentor/${mentor.id}`, { state: { mentor: mentor.user, skill: skillData } })}
+                    className="flex-1 py-2 bg-indigo-600 text-white rounded-lg"
+                  >View Profile</button>
+                  <button
+                    onClick={() => openRequestModal(mentor.user)}
+                    className="flex-1 py-2 bg-yellow-500 text-white rounded-lg"
+                  >Request</button>
+                </div>
               </div>
             ))}
           </div>
@@ -142,6 +197,43 @@ export default function SkillDetails() {
           </div>
         )}
       </div>
+      {/* Request Modal */}
+      {showModal && modalMentor && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold mb-2">Request a session with {modalMentor.name}</h3>
+            <p className="text-sm text-slate-500 mb-4">Include an optional message to introduce yourself and your goals.</p>
+
+            <textarea
+              value={requestMessage}
+              onChange={(e) => setRequestMessage(e.target.value)}
+              placeholder="Write a short message (optional)"
+              className="w-full border p-3 rounded-lg mb-4 h-28"
+            />
+
+            <div className="flex gap-2">
+              <button
+                onClick={sendRequest}
+                disabled={sending}
+                className="flex-1 bg-yellow-500 text-white py-2 rounded-xl hover:bg-yellow-600 transition-all disabled:opacity-60"
+              >
+                {sending ? 'Sending...' : 'Send Request'}
+              </button>
+              <button
+                onClick={() => setShowModal(false)}
+                className="flex-1 bg-white border border-slate-200 py-2 rounded-xl"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function RequestModal() {
+  // Placeholder — actual modal is controlled via globals below.
+  return null;
 }

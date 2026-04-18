@@ -9,7 +9,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyBWtnzZ2zwSgJJMGNlqmf_ThlTt3Coq7is",
   authDomain: "skillswap-4c5ee.firebaseapp.com",
   projectId: "skillswap-4c5ee",
-  storageBucket: "skillswap-4c5ee.firebasestorage.app",
+  storageBucket: "skillswap-4c5ee.appspot.com",
   messagingSenderId: "877730739852",
   appId: "1:877730739852:web:c850cac003041fa76a6da9",
   measurementId: "G-JJ3SF4T6KX"

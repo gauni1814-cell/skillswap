@@ -39,9 +39,28 @@ exports.sendMessage = async (req, res) => {
     try {
       const io = socketServer.getIO && socketServer.getIO();
       const roomId = [req.user.id, receiverId].sort().join("_");
+
+      // Normalize populated message into a plain JS object with string ids
+      const messageData = {
+        _id: populatedMessage._id.toString(),
+        sender: {
+          _id: populatedMessage.sender._id.toString(),
+          name: populatedMessage.sender.name,
+          photo: populatedMessage.sender.photo
+        },
+        receiver: {
+          _id: populatedMessage.receiver._id.toString(),
+          name: populatedMessage.receiver.name,
+          photo: populatedMessage.receiver.photo
+        },
+        text: populatedMessage.text,
+        createdAt: populatedMessage.createdAt,
+        isRead: populatedMessage.isRead
+      };
+
       if (io) {
-        io.to(roomId).emit("receive_message", populatedMessage);
-        io.to(`user_${receiverId}`).emit("message_received", { from: req.user.id, message: populatedMessage });
+        io.to(roomId).emit("receive_message", messageData);
+        io.to(`user_${receiverId}`).emit("message_received", { from: req.user.id, message: messageData });
       }
     } catch (emitErr) {
       console.error("Error emitting message via socket:", emitErr.message);

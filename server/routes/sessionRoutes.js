@@ -11,6 +11,7 @@ const {
   createSessionRequest,
   getSessions,
   acceptAndSchedule,
+  acceptRequest,
   rejectSession,
   completeSession,
   updateMeetingLink
@@ -19,6 +20,7 @@ const {
 router.post("/", auth, requireRole('learner'), createSessionRequest);
 router.get("/", auth, getSessions);
 router.put("/accept", auth, requireRole('mentor'), scheduleSession, validate, acceptAndSchedule);
+router.put("/accept-request", auth, requireRole('mentor'), acceptRequest);
 router.put("/reject", auth, requireRole('mentor'), rejectSession);
 router.put("/complete", auth, completeSession);
 router.put("/update-link", auth, requireRole('mentor'), updateMeetingLink);

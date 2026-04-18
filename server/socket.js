@@ -1,4 +1,5 @@
 const { Server } = require("socket.io");
+const jwt = require('jsonwebtoken');
 const Message = require("./models/Message");
 const mongoose = require("mongoose");
 
@@ -17,9 +18,10 @@ const onlineUsers = new Map();
 let globalIo = null;
 
 const socketServer = (server) => {
+  const allowedOrigin = process.env.CLIENT_URL || "http://localhost:5173";
   const io = new Server(server, {
     cors: {
-      origin: "http://localhost:5173",
+      origin: allowedOrigin,
       methods: ["GET", "POST"],
       credentials: true
     },
@@ -29,6 +31,22 @@ const socketServer = (server) => {
   globalIo = io;
 
   io.on("connection", (socket) => {
+    // Authenticate socket using token provided in handshake (socket.handshake.auth.token)
+    try {
+      const token = socket.handshake.auth && socket.handshake.auth.token;
+      if (token) {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded.id || decoded.userId;
+        socket.userId = userId;
+        socket.userRole = decoded.role;
+        // auto-join personal room
+        socket.join(`user_${userId}`);
+      }
+    } catch (e) {
+      console.warn('Socket auth failed:', e.message);
+      // proceed unauthenticated but many actions require socket.userId
+    }
+
     console.log("🟢 User connected:", socket.id);
 
     // Handle user coming online
@@ -141,16 +159,16 @@ const socketServer = (server) => {
 
         console.log(`✅ Message ready, emitting to room: ${roomId}`);
 
-        // Prepare message data
+        // Prepare message data (convert ObjectIds to strings for client comparisons)
         const messageData = {
-          _id: newMessage._id,
+          _id: newMessage._id.toString(),
           sender: {
-            _id: newMessage.sender._id,
+            _id: newMessage.sender._id.toString(),
             name: newMessage.sender.name,
             photo: newMessage.sender.photo
           },
           receiver: {
-            _id: newMessage.receiver._id,
+            _id: newMessage.receiver._id.toString(),
             name: newMessage.receiver.name,
             photo: newMessage.receiver.photo
           },

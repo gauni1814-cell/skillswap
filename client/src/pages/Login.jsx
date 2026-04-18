@@ -83,7 +83,8 @@ export default function Login() {
         const userData = await userRes.json();
 
         // Use AuthContext login (it will redirect based on role)
-        login(data.token, userData);
+        await login(data.token, userData);
+        setIsLoading(false);
 
       } catch (error) {
         console.error("Login error:", error);
@@ -122,7 +123,8 @@ export default function Login() {
       const userData = await userRes.json();
 
       // Use AuthContext login with full user data including name
-      login(data.token, userData);
+      await login(data.token, userData);
+      setIsLoading(false);
     } catch (error) {
       console.error("Google Login error:", error);
       if (error.code !== "auth/popup-closed-by-user") {

@@ -23,14 +23,14 @@ const AdminLayout = () => {
 
   return (
     <div className="min-h-screen flex bg-gray-50">
-      <aside className="w-72 bg-gradient-to-b from-indigo-600 to-purple-600 text-white p-6">
+      <aside className="w-72 bg-gradient-to-b from-indigo-700 via-indigo-600 to-purple-600 text-white p-6 shadow-xl">
         <div className="mb-6">
           <h1 className="text-2xl font-bold">SkillSwap</h1>
           <p className="text-sm text-indigo-100 mt-1">Administrator</p>
         </div>
 
         <div className="mb-6 flex items-center gap-3">
-          <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">{user?.name?.charAt(0)}</div>
+          <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center text-lg font-semibold">{user?.name?.charAt(0)}</div>
           <div>
             <div className="text-sm font-medium">{user?.name}</div>
             <div className="text-xs text-indigo-100">{user?.email}</div>
@@ -42,7 +42,7 @@ const AdminLayout = () => {
             <NavLink
               key={item.path}
               to={item.path}
-              className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-md ${isActive ? 'bg-white/20' : 'hover:bg-white/10'}`}
+              className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-md ${isActive ? 'bg-white/20 ring-1 ring-white/20' : 'hover:bg-white/10'}`}
             >
               <span className="w-3 h-3 bg-white/30 rounded-full" />
               <span>{item.name}</span>

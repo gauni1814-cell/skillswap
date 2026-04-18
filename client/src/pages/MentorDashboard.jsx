@@ -4,7 +4,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function MentorDashboard() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState("overview");
@@ -18,6 +18,7 @@ export default function MentorDashboard() {
   const [sessionStats, setSessionStats] = useState({});
   const [upcomingSessions, setUpcomingSessions] = useState([]);
   const [learners, setLearners] = useState([]);
+  const [reviews, setReviews] = useState([]);
 
   // Form states
   const [showAddSkillForm, setShowAddSkillForm] = useState(false);
@@ -38,11 +39,13 @@ export default function MentorDashboard() {
   const todayIsoDate = new Date().toISOString().split("T")[0];
 
   useEffect(() => {
+    if (authLoading) return; // wait for auth to resolve
     if (!user || user.role !== "mentor") {
       navigate("/");
+      return;
     }
     fetchDashboardData();
-  }, [navigate, user]);
+  }, [navigate, user, authLoading]);
 
   const fetchDashboardData = async () => {
     const token = localStorage.getItem("token");
@@ -91,6 +94,15 @@ export default function MentorDashboard() {
         const data = await learnersRes.json();
         setLearners(Array.isArray(data) ? data : []);
       }
+      // fetch my reviews
+      try {
+        const token = localStorage.getItem('token');
+        const r = await fetch('/api/users/reviews/me', { headers: { Authorization: `Bearer ${token}` } });
+        if (r.ok) {
+          const d = await r.json();
+          setReviews(d.reviews || []);
+        }
+      } catch (e) { console.warn('Failed to load reviews', e); }
     } catch (err) {
       console.error("Error fetching dashboard data:", err);
       setError("Failed to load dashboard data");
@@ -137,22 +149,30 @@ export default function MentorDashboard() {
   const handleAcceptRequest = async (requestId) => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`/api/match/${requestId}/accept`, {
+      const res = await fetch(`/api/session/accept-request`, {
         method: "PUT",
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sessionId: requestId })
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        // Open schedule modal for the newly created session
-        if (data && data.session) {
-          setSchedulingSession(data.session);
+      if (res.ok) {
+        const data = await res.json();
+        const session = (data && data.session) ? data.session : null;
+        if (session) {
+          setSchedulingSession(session);
+          // Prefill a generated meeting link for the mentor to edit/confirm
+          const gen = (() => {
+            const rand = (n) => Math.random().toString(36).substring(2, 2 + n);
+            return `https://meet.google.com/${rand(3)}-${rand(4)}-${rand(3)}`;
+          })();
+          setMeetingLink(gen);
           setShowScheduleModal(true);
         } else {
           fetchDashboardData();
         }
       } else {
-        setError("Failed to accept request");
+        const err = await res.json().catch(() => ({}));
+        setError(err.msg || "Failed to accept request");
       }
     } catch (err) {
       console.error("Error accepting request:", err);
@@ -211,15 +231,17 @@ export default function MentorDashboard() {
   const handleRejectRequest = async (requestId) => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`/api/match/${requestId}/reject`, {
+      const res = await fetch(`/api/session/reject`, {
         method: "PUT",
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sessionId: requestId })
       });
 
-      if (response.ok) {
+      if (res.ok) {
         fetchDashboardData();
       } else {
-        setError("Failed to reject request");
+        const err = await res.json().catch(() => ({}));
+        setError(err.msg || "Failed to reject request");
       }
     } catch (err) {
       console.error("Error rejecting request:", err);
@@ -249,7 +271,7 @@ export default function MentorDashboard() {
 
         {/* Tab Navigation */}
         <div className="flex gap-2 mb-6 flex-wrap">
-          {["overview", "requests", "skills", "sessions", "learners"].map(tab => (
+          {["overview", "requests", "skills", "sessions", "learners", "reviews"].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -370,7 +392,7 @@ export default function MentorDashboard() {
               <div className="space-y-6">
                 <div className="bg-white rounded-lg shadow p-6">
                   <h2 className="text-2xl font-semibold mb-4">
-                    📬 Incoming Requests {incomingRequests.length > 0 && `(${incomingRequests.length})`}
+                     Incoming Requests {incomingRequests.length > 0 && `(${incomingRequests.length})`}
                   </h2>
 
                   {incomingRequests.length > 0 ? (
@@ -409,6 +431,33 @@ export default function MentorDashboard() {
                                 </div>
                               </div>
                             )}
+
+                              {/* Reviews Tab */}
+                              {activeTab === "reviews" && (
+                                <div className="space-y-6">
+                                  <div className="bg-white rounded-lg shadow p-6">
+                                    <h2 className="text-2xl font-semibold mb-4">⭐ Reviews about you</h2>
+                                    {reviews.length === 0 ? (
+                                      <div className="text-sm text-slate-500">No reviews yet</div>
+                                    ) : (
+                                      <div className="space-y-3">
+                                        {reviews.map(r => (
+                                          <div key={r._id || r.createdAt} className="p-3 border rounded-lg">
+                                            <div className="flex items-center justify-between">
+                                              <div>
+                                                <div className="font-medium">{r.fromUser?.name || 'Anonymous'}</div>
+                                                <div className="text-xs text-slate-500">{new Date(r.createdAt).toLocaleDateString()}</div>
+                                              </div>
+                                              <div className="text-sm text-yellow-500 font-bold">{r.rating} ★</div>
+                                            </div>
+                                            {r.comment && <div className="mt-2 text-sm text-slate-700">{r.comment}</div>}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                               <h4 className="font-semibold text-slate-900 text-lg">
                                 {request.learner?.name || "Unknown Learner"}
                               </h4>
@@ -446,19 +495,19 @@ export default function MentorDashboard() {
                               onClick={() => handleAcceptRequest(request._id)}
                               className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
                             >
-                              ✓ Accept Request
+                               Accept Request
                             </button>
                             <button
                               onClick={() => handleRejectRequest(request._id)}
                               className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
                             >
-                              ✗ Decline
+                               Decline
                             </button>
                             <Link
                               to={`/chat/${request.learner?._id}`}
                               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-center"
                             >
-                              💬 Chat
+                               Chat
                             </Link>
                           </div>
                         </div>

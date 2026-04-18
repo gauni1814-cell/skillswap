@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
+import toast from 'react-hot-toast';
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function LearnerDashboard() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState("overview");
@@ -29,11 +30,45 @@ export default function LearnerDashboard() {
   const categories = ["all", "technology", "design", "business", "language", "music", "art", "sports"];
 
   useEffect(() => {
+    if (authLoading) return; // wait for auth to resolve
     if (!user || user.role !== "learner") {
       navigate("/");
+      return;
     }
     fetchDashboardData();
-  }, [navigate, user]);
+  }, [navigate, user, authLoading]);
+
+  // Review modal state
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewSession, setReviewSession] = useState(null);
+  const [reviewForm, setReviewForm] = useState({ rating: 5, comment: '' });
+
+  const openReviewModal = (session) => {
+    setReviewSession(session);
+    setReviewForm({ rating: 5, comment: '' });
+    setShowReviewModal(true);
+  };
+
+  const submitReview = async () => {
+    if (!reviewSession) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/users/reviews/${reviewSession.mentor._id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ rating: reviewForm.rating, comment: reviewForm.comment })
+      });
+      if (!res.ok) throw new Error('Failed to submit review');
+      // Optionally mark session as reviewed locally
+      setLearningHistory(prev => prev.map(s => s._id === reviewSession._id ? { ...s, reviewed: true } : s));
+      setShowReviewModal(false);
+      setReviewSession(null);
+      toast.success('Review submitted — thank you!');
+    } catch (err) {
+      console.error('Review error', err);
+      toast.error('Failed to submit review');
+    }
+  };
 
   const fetchDashboardData = async () => {
     const token = localStorage.getItem("token");
@@ -71,6 +106,12 @@ export default function LearnerDashboard() {
         const data = await historyRes.json();
         setLearningHistory(data.sessions || []);
         setHistoryStats(data.stats || {});
+        // After setting learning history, check for any recently completed session that needs review
+        try {
+          checkForPendingReview(data.sessions || []);
+        } catch (e) {
+          console.warn('Review check failed', e);
+        }
       }
 
       if (requestsRes.ok) {
@@ -82,6 +123,40 @@ export default function LearnerDashboard() {
       setError("Failed to load dashboard data");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Check for recent completed session that the learner hasn't reviewed yet
+  const checkForPendingReview = async (sessionsList) => {
+    if (!sessionsList || sessionsList.length === 0) return;
+    const now = new Date();
+    const WINDOW_MS = 48 * 60 * 60 * 1000; // 48 hours
+
+    for (const s of sessionsList) {
+      if (!s.completedAt) continue;
+      const completedAt = new Date(s.completedAt);
+      if (isNaN(completedAt.getTime())) continue;
+      const age = now - completedAt;
+      if (age > WINDOW_MS) continue; // too old
+
+      // Check if learner already reviewed this mentor
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`/api/users/reviews/${s.mentor._id}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) continue;
+        const data = await res.json();
+        const reviews = data.reviews || [];
+        const already = reviews.some(r => String(r.fromUser?._id || r.fromUser) === String((user && user._id) || ''));
+        if (!already) {
+          // Prompt learner to review this session
+          setReviewSession(s);
+          setReviewForm({ rating: 5, comment: '' });
+          setShowReviewModal(true);
+          return; // only prompt once
+        }
+      } catch (err) {
+        console.warn('Error checking reviews for mentor', err);
+      }
     }
   };
 
@@ -549,12 +624,49 @@ export default function LearnerDashboard() {
                           <div className="text-sm text-slate-600">
                             Completed: {new Date(session.completedAt).toLocaleDateString()}
                           </div>
+                          <div className="mt-4 flex items-center gap-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-slate-500">Your review:</span>
+                              {session.reviewed ? (
+                                <span className="text-sm text-green-600 font-medium">Submitted</span>
+                              ) : (
+                                <button
+                                  onClick={() => openReviewModal(session)}
+                                  className="px-3 py-1 bg-yellow-500 text-white rounded text-sm"
+                                >
+                                  Leave Review
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>
                   ) : (
                     <div className="text-center py-8 text-slate-600">
                       <p>No completed sessions yet. Start your learning journey!</p>
+                    </div>
+                  )}
+                  {/* Review Modal */}
+                  {showReviewModal && reviewSession && (
+                    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+                        <h3 className="text-lg font-semibold mb-2">Leave a review for {reviewSession.mentor?.name}</h3>
+                        <div className="mb-3">
+                          <label className="block text-sm text-slate-700 mb-1">Rating</label>
+                          <select value={reviewForm.rating} onChange={(e)=>setReviewForm(f=>({...f, rating: Number(e.target.value)}))} className="w-full p-2 border rounded">
+                            {[5,4,3,2,1].map(r=> <option key={r} value={r}>{r} star{r>1?'s':''}</option>)}
+                          </select>
+                        </div>
+                        <div className="mb-4">
+                          <label className="block text-sm text-slate-700 mb-1">Comment</label>
+                          <textarea value={reviewForm.comment} onChange={(e)=>setReviewForm(f=>({...f, comment: e.target.value}))} className="w-full p-3 border rounded h-28" placeholder="Share feedback with the mentor" />
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={()=>setShowReviewModal(false)} className="px-4 py-2 bg-gray-200 rounded">Cancel</button>
+                          <button onClick={submitReview} className="px-4 py-2 bg-blue-600 text-white rounded">Submit Review</button>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

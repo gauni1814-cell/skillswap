@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from 'react-router-dom';
 import socket from "../socket";
 
@@ -19,7 +19,7 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
   });
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Emit user online when user logs in
   useEffect(() => {
@@ -29,7 +29,7 @@ export const AuthProvider = ({ children }) => {
   }, [user]);
 
   // Function to refresh user data from server
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     const token = localStorage.getItem("token");
     if (!token) return null;
     
@@ -45,14 +45,22 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem("user", JSON.stringify(freshUserData));
         setUser(freshUserData);
         return freshUserData;
+      } else {
+        // Token invalid or expired - clear stored auth and user
+        if (response.status === 401 || response.status === 403) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          setUser(null);
+        }
+        return null;
       }
     } catch (error) {
       console.error("Error refreshing user data:", error);
     }
     return null;
-  };
+  }, [navigate]);
 
-  const login = async (token, userData, navigate) => {
+  const login = useCallback(async (token, userData) => {
     localStorage.setItem("token", token);
     localStorage.setItem("user", JSON.stringify(userData));
     setUser(userData);
@@ -61,19 +69,14 @@ export const AuthProvider = ({ children }) => {
     if (userData._id) {
       socket.emit("user_online", userData._id);
     }
-    // If caller provided a navigate callback, prefer that
-    if (typeof navigate === 'function') {
-      try { navigate(); return; } catch (e) { /* ignore */ }
-    }
-
     // Default role redirects using react-router navigate
     if (userData.role === 'admin') return navigate('/admin');
     if (userData.role === 'mentor') return navigate('/mentor-dashboard');
     if (userData.role === 'learner') return navigate('/learner-dashboard');
     return navigate('/dashboard');
-  };
+  }, [navigate]);
 
-  const register = async (token, userData, navigate) => {
+  const register = useCallback(async (token, userData) => {
     localStorage.setItem("token", token);
     localStorage.setItem("user", JSON.stringify(userData));
     setUser(userData);
@@ -82,16 +85,13 @@ export const AuthProvider = ({ children }) => {
     if (userData._id) {
       socket.emit("user_online", userData._id);
     }
-    if (typeof navigate === 'function') {
-      try { navigate(); return; } catch (e) {}
-    }
     if (userData.role === 'admin') return navigate('/admin');
     if (userData.role === 'mentor') return navigate('/mentor-dashboard');
     if (userData.role === 'learner') return navigate('/learner-dashboard');
     return navigate('/dashboard');
-  };
+  }, []);
 
-  const logout = (navigate) => {
+  const logout = useCallback((navigate) => {
     // Emit offline status before logging out
     if (user && user._id) {
       socket.emit("user_offline", user._id);
@@ -104,10 +104,29 @@ export const AuthProvider = ({ children }) => {
     if (navigate) {
       navigate("/");
     }
-  };
+  }, [user]);
+
+  // On mount, try to refresh user if token exists and then clear loading
+  useEffect(() => {
+    const init = async () => {
+      const token = localStorage.getItem("token");
+      if (token) {
+        const fresh = await refreshUser();
+        if (!fresh) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          setUser(null);
+        }
+      }
+      setLoading(false);
+    };
+    init();
+  }, []);
+
+  const value = useMemo(() => ({ user, setUser, login, register, logout, loading, refreshUser }), [user, loading, login, register, logout, refreshUser]);
 
   return (
-    <AuthContext.Provider value={{ user, setUser, login, register, logout, loading, refreshUser }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

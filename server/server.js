@@ -4,7 +4,6 @@ const http = require("http");
 const mongoose = require("mongoose");
 const cors = require("cors");
 
-
 const User = require("./models/User");
 const Message = require("./models/Message");
 
@@ -31,7 +30,15 @@ const server = http.createServer(app);
 // =====================
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:5174"],
+    origin: (origin, cb) => {
+      // Allow explicit dev origins plus any CLIENT_URL from env
+      const allowed = ["http://localhost:5173", "http://localhost:5174", "http://localhost:5175"];
+      if (process.env.CLIENT_URL) allowed.push(process.env.CLIENT_URL);
+      if (!origin || allowed.indexOf(origin) !== -1) return cb(null, true);
+      // In development allow all origins for convenience
+      if (process.env.NODE_ENV !== 'production') return cb(null, true);
+      cb(new Error('Not allowed by CORS'));
+    },
     credentials: true,
   })
 );

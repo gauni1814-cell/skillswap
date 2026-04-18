@@ -146,11 +146,21 @@ exports.acceptAndSchedule = async (req, res) => {
       await msgDoc.populate('sender', 'name photo');
       await msgDoc.populate('receiver', 'name photo');
 
+      // Normalize message for socket emit
+      const emittedMessage = {
+        _id: msgDoc._id.toString(),
+        sender: { _id: msgDoc.sender._id.toString(), name: msgDoc.sender.name, photo: msgDoc.sender.photo },
+        receiver: { _id: msgDoc.receiver._id.toString(), name: msgDoc.receiver.name, photo: msgDoc.receiver.photo },
+        text: msgDoc.text,
+        createdAt: msgDoc.createdAt,
+        isRead: msgDoc.isRead
+      };
+
       const io = socketServer.getIO && socketServer.getIO();
       const roomId = chatId;
       if (io) {
-        io.to(roomId).emit('receive_message', msgDoc);
-        io.to(`user_${receiverId}`).emit('message_received', { from: senderId, message: msgDoc });
+        io.to(roomId).emit('receive_message', emittedMessage);
+        io.to(`user_${receiverId}`).emit('message_received', { from: senderId, message: emittedMessage });
       }
     } catch (msgErr) {
       console.warn('Failed to send chat message with meeting link:', msgErr && msgErr.message ? msgErr.message : msgErr);
@@ -195,7 +205,7 @@ exports.rejectSession = async (req, res) => {
       try {
         const templates = require('../services/emailTemplates');
         const html = templates.requestRejectedEmail({ learnerName: learner.name, mentorName: mentor.name, skill: populated.skillTopic?.skillName || '' });
-        await sendMail({ to: learner.email, subject: 'Request Rejected', html });
+        await sendMail({ to: learner.email, subject: 'Session Request Update', html });
       } catch (e) {
         console.warn('Failed to send rejection email:', e && e.message);
       }
@@ -260,5 +270,44 @@ exports.updateMeetingLink = async (req, res) => {
     res.json({ msg: "Meeting link updated", session });
   } catch (err) {
     res.status(500).json({ msg: err.message });
+  }
+};
+
+/* =========================================
+   MENTOR ACCEPT (mark accepted, then mentor schedules)
+   This endpoint is used when a mentor accepts a pending request
+   and wants the learner notified that scheduling will follow.
+========================================= */
+exports.acceptRequest = async (req, res) => {
+  try {
+    const mentorId = req.user.id;
+    const { sessionId } = req.body;
+
+    const session = await Session.findById(sessionId);
+    if (!session) return res.status(404).json({ msg: 'Session not found' });
+    if (session.mentor.toString() !== mentorId) return res.status(403).json({ msg: 'Unauthorized' });
+
+    session.status = 'accepted';
+    await session.save();
+
+    const populated = await Session.findById(sessionId)
+      .populate('learner', 'name email')
+      .populate('mentor', 'name');
+
+    // Notify learner by email that request was accepted and scheduling will follow
+    try {
+      const learner = populated.learner;
+      const mentor = populated.mentor;
+      const skill = populated.skillTopic?.skillName || '';
+      const templates = require('../services/emailTemplates');
+      const html = templates.requestAcceptedEmail({ learnerName: learner.name, mentorName: mentor.name, skill });
+      await sendMail({ to: learner.email, subject: 'Request Accepted', html });
+    } catch (e) {
+      console.warn('Failed to send acceptance email:', e && e.message);
+    }
+
+    res.json({ msg: 'Request accepted', session: populated });
+  } catch (err) {
+    res.status(500).json({ msg: 'Failed to accept request' });
   }
 };

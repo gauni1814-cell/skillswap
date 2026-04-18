@@ -1,8 +1,18 @@
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "http://localhost:5000";
+const SOCKET_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 // Create socket with improved configuration
+// Attach auth token on handshake for server-side verification
+const getAuth = () => {
+  try {
+    const token = localStorage.getItem('token');
+    return token ? { token } : {};
+  } catch (e) {
+    return {};
+  }
+};
+
 const socket = io(SOCKET_URL, {
   reconnection: true,
   reconnectionAttempts: 10,
@@ -11,6 +21,7 @@ const socket = io(SOCKET_URL, {
   timeout: 20000,
   autoConnect: true,
   forceNew: false,
+  auth: getAuth()
 });
 
 // Connection status tracking with callbacks
@@ -85,6 +96,9 @@ socket.on("reconnect", (attemptNumber) => {
     try {
       const user = JSON.parse(userData);
       if (user._id) {
+        // Update auth token if it may have changed
+        socket.auth = getAuth();
+        socket.connect();
         socket.emit("user_online", user._id);
         userOnlineEmitted = true;
       }

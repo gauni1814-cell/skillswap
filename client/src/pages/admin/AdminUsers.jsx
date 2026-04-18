@@ -32,6 +32,24 @@ const AdminUsers = () => {
     setShowEmailModal(true);
   };
 
+  const [showReviewsModal, setShowReviewsModal] = useState(false);
+  const [userReviews, setUserReviews] = useState([]);
+
+  const viewReviews = async (u) => {
+    try {
+      const res = await adminAPI.getUser(u._id);
+      // adminAPI.getUser returns user object; fetch reviews via users API
+      const token = localStorage.getItem('token');
+      const r = await fetch(`/api/users/reviews/${u._id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error('Failed to fetch reviews');
+      const data = await r.json();
+      setUserReviews(data.reviews || []);
+      setShowReviewsModal(true);
+    } catch (err) {
+      console.error('Failed to load user reviews', err);
+    }
+  };
+
   // Email modal states
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -99,6 +117,7 @@ const AdminUsers = () => {
                   <td className="py-3 px-3">{u.isBlocked ? <span className="text-red-600">Blocked</span> : <span className="text-green-600">Active</span>}</td>
                   <td className="py-3 px-3">
                     <button onClick={() => toggleBlock(u)} className="mr-2 px-3 py-1 rounded bg-indigo-600 text-white text-sm">{u.isBlocked ? 'Unblock' : 'Block'}</button>
+                    <button onClick={() => viewReviews(u)} className="mr-2 px-3 py-1 rounded bg-purple-600 text-white text-sm">Reviews</button>
                     <button onClick={() => emailUser(u)} className="mr-2 px-3 py-1 rounded bg-yellow-500 text-white text-sm">Email</button>
                     <button onClick={async ()=>{ try{ await messageAPI.sendMessage({ receiverId: u._id, text: `Hello from admin ${u.name}.` }); toast.success('Quick chat sent'); } catch(e){ toast.error('Chat failed') } }} className="mr-2 px-3 py-1 rounded bg-green-600 text-white text-sm">Chat</button>
                     <button onClick={() => removeUser(u._id)} className="px-3 py-1 rounded bg-red-500 text-white text-sm">Delete</button>
@@ -128,6 +147,32 @@ const AdminUsers = () => {
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={()=>setShowEmailModal(false)} className="px-4 py-2 bg-gray-200 rounded">Cancel</button>
               <button onClick={submitEmail} className="px-4 py-2 bg-indigo-600 text-white rounded">Send Email</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Reviews Modal */}
+      {showReviewsModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
+            <h3 className="text-lg font-semibold mb-4">Reviews for {selectedUser?.name || 'User'}</h3>
+            {userReviews.length === 0 ? (
+              <div className="text-sm text-gray-500">No reviews</div>
+            ) : (
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {userReviews.map(r => (
+                  <div key={r._id || r.createdAt} className="p-3 border rounded">
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">{r.fromUser?.name || 'Anonymous'}</div>
+                      <div className="text-sm text-yellow-500 font-bold">{r.rating} ★</div>
+                    </div>
+                    {r.comment && <div className="mt-2 text-sm text-gray-700">{r.comment}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-4 text-right">
+              <button onClick={()=>setShowReviewsModal(false)} className="px-4 py-2 bg-gray-200 rounded">Close</button>
             </div>
           </div>
         </div>
