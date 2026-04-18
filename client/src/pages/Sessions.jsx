@@ -151,6 +151,25 @@ export default function Sessions() {
                 <p>{session.skillTopic?.skillName}</p>
                 <p className="text-sm text-slate-600">Status: {session.status}</p>
                 <p className="text-sm text-slate-600">Scheduled: {session.scheduledAt ? new Date(session.scheduledAt).toLocaleString() : 'TBD'}</p>
+                {session.status === 'scheduled' && session.meetingLink && (
+                  <div className="flex gap-2 mt-3">
+                    <button 
+                      onClick={() => window.open(session.meetingLink, '_blank')} 
+                      className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                    >
+                      Join Session
+                    </button>
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(session.meetingLink);
+                        toast.success('Meeting link copied to clipboard');
+                      }}
+                      className="px-5 py-2 bg-slate-300 text-slate-800 rounded-lg hover:bg-slate-400 transition"
+                    >
+                      Copy Link
+                    </button>
+                  </div>
+                )}
               </div>
             ))
           )}

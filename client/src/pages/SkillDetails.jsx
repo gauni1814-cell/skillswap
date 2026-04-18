@@ -56,7 +56,16 @@ export default function SkillDetails() {
     setSending(true);
     try {
       const token = localStorage.getItem('token');
-      const body = { teacherId: modalMentor._id || modalMentor.id, skill: skillData?.skillName || skill.title, message: requestMessage };
+      // Use modalMentor.id which is the user ID (m.user._id from the mapped mentor)
+      const mentorUserId = modalMentor.id || modalMentor._id || modalMentor.user?._id;
+      if (!mentorUserId) {
+        throw new Error('Mentor ID not found');
+      }
+      const body = { 
+        teacherId: mentorUserId, 
+        skill: skillData?.skillName || skill.title, 
+        message: requestMessage 
+      };
       const res = await fetch('/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

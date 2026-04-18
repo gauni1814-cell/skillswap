@@ -105,11 +105,17 @@ const socketServer = (server) => {
       try {
         // Use authenticated socket.userId as the sender to prevent spoofing
         const senderId = socket.userId || data.senderId;
-        const { receiverId, message, chatId, clientMessageId } = data;
+        const { receiverId, message, attachments = [], chatId, clientMessageId } = data;
 
-        console.log("📨 Message received on server:", { senderId, receiverId, message: message?.substring(0, 50), clientMessageId });
+        console.log("📨 Message received on server:", { senderId, receiverId, message: message?.substring(0, 50), attachmentCount: attachments.length, clientMessageId });
 
-        if (!message || !senderId || !receiverId) {
+        if ((!message || message.trim() === '') && (!attachments || attachments.length === 0)) {
+          console.log("❌ Missing message text and attachments");
+          socket.emit("message_error", { error: "Message cannot be empty" });
+          return;
+        }
+
+        if (!senderId || !receiverId) {
           console.log("❌ Missing required fields");
           socket.emit("message_error", { error: "Missing required fields" });
           return;
@@ -141,7 +147,8 @@ const socketServer = (server) => {
           newMessage = await Message.create({
             sender: senderObjectId,
             receiver: receiverObjectId,
-            text: message,
+            text: message || "",
+            attachments: attachments && attachments.length > 0 ? attachments : [],
             chatId: chatId || [senderId, receiverId].sort().join("_"),
             clientMessageId: clientMessageId || undefined,
             isRead: false
@@ -173,6 +180,7 @@ const socketServer = (server) => {
             photo: newMessage.receiver.photo
           },
           text: newMessage.text,
+          attachments: newMessage.attachments || [],
           createdAt: newMessage.createdAt,
           isRead: newMessage.isRead,
           clientMessageId: newMessage.clientMessageId

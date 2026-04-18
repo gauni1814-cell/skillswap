@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useParams } from "react-router-dom";
 import socket, { isSocketConnected, onSocketConnected } from "../socket";
 import { useAuth } from "../context/AuthContext";
 import toast from 'react-hot-toast';
@@ -10,6 +10,7 @@ const API_URL = "";
 export default function Chat() {
   const navigate = useNavigate();
   const { state } = useLocation();
+  const { mentorId } = useParams();
   
   // Use auth context instead of localStorage for consistent user state
   const { user: currentUser, loading: authLoading } = useAuth();
@@ -27,10 +28,12 @@ export default function Chat() {
   const [unreadCounts, setUnreadCounts] = useState({});
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
+  const [attachments, setAttachments] = useState([]); // Store selected file attachments
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const unreadCountsFetchRef = useRef(false);
   const messageIdsRef = useRef(new Set());
+  const fileInputRef = useRef(null);
 
 
   // Redirect if not logged in (wait for auth to finish)
@@ -41,21 +44,40 @@ export default function Chat() {
     }
   }, [token, currentUser, navigate, authLoading]);
 
-  // Auto-select mentor if passed from MentorProfile or SkillDetails
+  // Auto-select mentor if passed from URL params or state
   useEffect(() => {
-    if (state?.mentor && conversations.length > 0) {
-      // Find mentor ID - handle both direct _id and nested id
-      const mentorId = state.mentor._id || state.mentor.id;
-      
-      // Try to find mentor in conversations first
+    if (conversations.length === 0) return;
+    
+    // Priority 1: Check URL parameter (from /chat/:mentorId)
+    if (mentorId) {
       const mentorConversation = conversations.find(c => c.user?._id === mentorId);
       
       if (mentorConversation) {
         setSelectedUser(mentorConversation.user);
       } else {
-        // Create a properly structured user object with all required fields
+        // Fetch mentor details if not in conversations
+        fetch(`/api/users/${mentorId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data && data._id) {
+              setSelectedUser(data);
+            }
+          })
+          .catch(err => console.error("Error fetching mentor:", err));
+      }
+    }
+    // Priority 2: Check state (from Link with state prop)
+    else if (state?.mentor) {
+      const mentorIdFromState = state.mentor._id || state.mentor.id;
+      const mentorConversation = conversations.find(c => c.user?._id === mentorIdFromState);
+      
+      if (mentorConversation) {
+        setSelectedUser(mentorConversation.user);
+      } else {
         const userObject = {
-          _id: mentorId,
+          _id: mentorIdFromState,
           name: state.mentor.name || 'Unknown',
           photo: state.mentor.photo,
           email: state.mentor.email,
@@ -66,7 +88,7 @@ export default function Chat() {
         setSelectedUser(userObject);
       }
     }
-  }, [state?.mentor, conversations]);
+  }, [mentorId, state?.mentor, conversations, token]);
 
   // Track socket connection status
   useEffect(() => {
@@ -532,9 +554,50 @@ export default function Chat() {
     }
   };
 
+  // Handle file selection from input
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files);
+    
+    for (const file of files) {
+      // Check file size (limit to 10MB per file)
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error(`File "${file.name}" is too large (max 10MB)`);
+        continue;
+      }
+
+      // Read file as base64
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64Data = event.target.result;
+        const newAttachment = {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          data: base64Data,
+          preview: file.type.startsWith('image/') ? base64Data : null
+        };
+        setAttachments(prev => [...prev, newAttachment]);
+      };
+      reader.onerror = () => {
+        toast.error(`Failed to read file "${file.name}"`);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Remove attachment from preview
+  const removeAttachment = (index) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSend = async () => {
-    if (!newMessage.trim() || !selectedUser) {
-      console.warn("Cannot send: message empty or no user selected");
+    if ((!newMessage.trim() && attachments.length === 0) || !selectedUser) {
+      console.warn("Cannot send: message and attachments empty or no user selected");
       return;
     }
 
@@ -558,6 +621,7 @@ export default function Chat() {
         sender: { _id: currentUser._id, name: currentUser.name, photo: currentUser.photo },
         receiver: { _id: receiverId },
         text: messageText,
+        attachments: attachments.length > 0 ? attachments.map(({ preview, ...rest }) => rest) : [],
         createdAt: new Date().toISOString(),
         isRead: false,
         clientMessageId,
@@ -567,18 +631,20 @@ export default function Chat() {
       // Add pending message immediately
       setMessages(prev => [...prev, pendingMessage]);
 
-      console.log("📤 Sending message via socket to:", receiverId, { clientMessageId });
+      console.log("📤 Sending message via socket to:", receiverId, { clientMessageId, attachmentCount: attachments.length });
 
       // Emit via socket (server uses authenticated socket.userId)
       safeEmit("send_message", {
         receiverId: receiverId,
         message: messageText,
+        attachments: attachments.map(({ preview, ...rest }) => rest), // Strip preview before sending
         chatId: chatId,
         clientMessageId
       });
 
-      // Clear input
+      // Clear input and attachments
       setNewMessage("");
+      setAttachments([]);
       
       safeEmit("stop_typing", {
         receiverId: receiverId
@@ -1091,7 +1157,50 @@ return (
                               ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-br-md" 
                               : "bg-white text-slate-900 rounded-bl-md border border-slate-200"
                           }`}>
-                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                            {msg.text && <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>}
+                            
+                            {/* Attachments Display */}
+                            {msg.attachments && msg.attachments.length > 0 && (
+                              <div className={`mt-3 flex flex-wrap gap-2 ${msg.text ? "border-t border-current border-opacity-20 pt-3" : ""}`}>
+                                {msg.attachments.map((attachment, idx) => {
+                                  const isImage = attachment.type?.startsWith('image/');
+                                  return (
+                                    <div key={idx} className={`relative ${isImage ? 'max-w-xs' : ''}`}>
+                                      {isImage ? (
+                                        // Image attachment
+                                        <a href={attachment.data} download={attachment.name} title={attachment.name}>
+                                          <img 
+                                            src={attachment.data} 
+                                            alt={attachment.name} 
+                                            className="max-h-48 rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                                          />
+                                        </a>
+                                      ) : (
+                                        // File attachment
+                                        <a 
+                                          href={attachment.data} 
+                                          download={attachment.name}
+                                          className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
+                                            isMe 
+                                              ? "bg-white/20 hover:bg-white/30" 
+                                              : "bg-slate-100 hover:bg-slate-200"
+                                          } transition-colors`}
+                                          title={`Download ${attachment.name}`}
+                                        >
+                                          <svg className={`w-5 h-5 flex-shrink-0 ${isMe ? 'text-white' : 'text-slate-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8m0 8l-4-4m4 4l4-4" />
+                                          </svg>
+                                          <div className="text-left">
+                                            <p className={`text-xs font-medium truncate ${isMe ? 'text-white' : 'text-slate-900'}`}>{attachment.name}</p>
+                                            <p className={`text-xs ${isMe ? 'text-white/70' : 'text-slate-500'}`}>{(attachment.size / 1024).toFixed(1)} KB</p>
+                                          </div>
+                                        </a>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                           <div className={`flex items-center gap-2 mt-2 ${isMe ? "justify-end" : "justify-start"}`}>
                             <p className={`text-xs text-slate-400`}>
@@ -1134,12 +1243,72 @@ return (
 
             {/* Message Input */}
             <div className="bg-white/80 backdrop-blur-xl border-t border-slate-200/50 px-6 py-4">
+              {/* Attachment Preview */}
+              {attachments.length > 0 && (
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {attachments.map((attachment, index) => (
+                    <div key={index} className="relative bg-white border border-slate-200 rounded-lg p-2 max-w-xs">
+                      {attachment.preview ? (
+                        // Image preview
+                        <div className="relative">
+                          <img src={attachment.preview} alt={attachment.name} className="h-16 w-16 object-cover rounded" />
+                          <button
+                            onClick={() => removeAttachment(index)}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-600 transition-colors text-xs font-bold"
+                            title="Remove attachment"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        // File preview (non-image)
+                        <div className="flex items-center gap-2">
+                          <div className="w-10 h-10 bg-slate-100 rounded flex items-center justify-center">
+                            <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-slate-900 truncate">{attachment.name}</p>
+                            <p className="text-xs text-slate-500">{(attachment.size / 1024).toFixed(1)} KB</p>
+                          </div>
+                          <button
+                            onClick={() => removeAttachment(index)}
+                            className="flex-shrink-0 p-1 hover:bg-red-50 rounded transition-colors"
+                            title="Remove attachment"
+                          >
+                            <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
               <div className="flex items-center gap-3 bg-slate-100 rounded-2xl px-4 py-2.5 border border-slate-200 focus-within:border-purple-300 focus-within:ring-2 focus-within:ring-purple-500/20 transition-all">
-                <button className="p-2.5 hover:bg-slate-200 rounded-xl transition-colors" title="Add attachments">
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2.5 hover:bg-slate-200 rounded-xl transition-colors" 
+                  title="Add attachments"
+                >
                   <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                   </svg>
                 </button>
+
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.txt,.xlsx,.pptx"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  aria-label="Select files to attach"
+                />
                 
                 <input
                   type="text"
@@ -1152,7 +1321,7 @@ return (
                 
                 <button 
                   onClick={handleSend}
-                  disabled={!newMessage.trim()}
+                  disabled={!newMessage.trim() && attachments.length === 0}
                   className="p-3.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg hover:shadow-purple-500/30 transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:scale-100"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

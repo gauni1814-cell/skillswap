@@ -15,6 +15,7 @@ export default function LearnerDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [lastSearchedSkillId, setLastSearchedSkillId] = useState(null);
 
   // Mentors
   const [mentors, setMentors] = useState([]);
@@ -24,10 +25,19 @@ export default function LearnerDashboard() {
   const [sessions, setSessions] = useState([]);
   const [learningHistory, setLearningHistory] = useState([]);
   const [historyStats, setHistoryStats] = useState({});
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   // Skill Requests (not used in this view yet)
 
   const categories = ["all", "technology", "design", "business", "language", "music", "art", "sports"];
+
+  // Update current time every second for session countdown
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (authLoading) return; // wait for auth to resolve
@@ -163,19 +173,45 @@ export default function LearnerDashboard() {
   const handleSearchSkills = async () => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
+      setLastSearchedSkillId(null);
       return;
     }
 
     try {
       const token = localStorage.getItem("token");
+      // Use correct endpoint: /api/skills with search query parameter
       const response = await fetch(
-        `/api/skills/search?query=${encodeURIComponent(searchQuery)}&category=${selectedCategory}`,
+        `/api/skills?search=${encodeURIComponent(searchQuery)}&category=${selectedCategory}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       if (response.ok) {
         const data = await response.json();
-        setSearchResults(Array.isArray(data) ? data : []);
+        const skillsList = data.skills || data || [];
+        
+        // If we have results, get unique mentor IDs from the skills
+        if (skillsList.length > 0) {
+          setSearchResults(Array.isArray(skillsList) ? skillsList : []);
+          
+          // Extract unique mentor IDs from search results and filter mentors
+          const mentorIdsWithSkill = new Set();
+          skillsList.forEach(skill => {
+            if (skill.user && skill.user._id) {
+              mentorIdsWithSkill.add(skill.user._id);
+            }
+          });
+          
+          // Filter mentors to show only those with the searched skill
+          const filteredBySkill = mentors.filter(mentor => 
+            mentorIdsWithSkill.has(mentor._id)
+          );
+          setFilteredMentors(filteredBySkill);
+          setLastSearchedSkillId(skillsList[0]?.skillName || null);
+        } else {
+          setSearchResults([]);
+          setFilteredMentors(mentors);
+          setLastSearchedSkillId(null);
+        }
       }
     } catch (err) {
       console.error("Search error:", err);
@@ -194,6 +230,79 @@ export default function LearnerDashboard() {
         mentor.bio?.toLowerCase().includes(query.toLowerCase())
     );
     setFilteredMentors(filtered);
+  };
+
+  // Calculate time remaining until session
+  const getTimeRemaining = (scheduledAt) => {
+    const scheduled = new Date(scheduledAt);
+    const diff = scheduled - currentTime;
+    
+    if (diff < 0) {
+      return { status: "started", remaining: "Session started" };
+    }
+    
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    
+    let timeStr = "";
+    if (days > 0) timeStr = `${days}d ${hours}h`;
+    else if (hours > 0) timeStr = `${hours}h ${minutes}m`;
+    else if (minutes > 0) timeStr = `${minutes}m ${seconds}s`;
+    else timeStr = `${seconds}s`;
+    
+    return { status: "pending", remaining: timeStr };
+  };
+
+  // Handle join session - open Google Meet link
+  const handleJoinSession = async (session) => {
+    try {
+      const token = localStorage.getItem("token");
+      
+      let meetingLink = session.meetingLink;
+      
+      // If no meeting link, generate a temporary one
+      if (!meetingLink) {
+        meetingLink = `https://meet.google.com/${session._id}`;
+      }
+      
+      // Try to call backend to mark session as started
+      try {
+        const response = await fetch("/api/session/start", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ sessionId: session._id })
+        });
+
+        if (response.ok) {
+          try {
+            await response.json();
+            toast.success("Session started! Opening Google Meet...");
+          } catch (parseErr) {
+            toast.success("Session started! Opening Google Meet...");
+          }
+        } else {
+          console.warn("Session start API error:", response.status, response.statusText);
+          toast.success("Opening Google Meet...");
+        }
+      } catch (apiErr) {
+        console.warn("Backend API call failed, proceeding with meeting:", apiErr.message);
+        toast.success("Opening Google Meet...");
+      }
+      
+      // Open meeting link in new tab
+      window.open(meetingLink, "_blank", "width=1280,height=720");
+      
+      // Refresh sessions to show updated status
+      setTimeout(() => fetchDashboardData(), 2000);
+    } catch (err) {
+      console.error("Error in handleJoinSession:", err);
+      toast.error("Error: " + err.message);
+    }
   };
 
   // (Feature) Send request handled from skill details or separate flow
@@ -393,20 +502,48 @@ export default function LearnerDashboard() {
                             )}
                             <h4 className="font-semibold text-slate-900 mb-1">{skill.skillName}</h4>
                             <p className="text-sm text-slate-600 mb-2">{skill.overview}</p>
-                            <div className="flex justify-between items-center">
+                            {skill.user && (
+                              <p className="text-xs text-slate-600 mb-2">
+                                👨‍🏫 Mentor: <span className="font-medium">{skill.user.name}</span>
+                              </p>
+                            )}
+                            <div className="flex justify-between items-center gap-2">
                               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
                                 {skill.category}
                               </span>
-                              <button
-                                onClick={() => navigate(`/skill/${skill._id}`)}
-                                className="text-blue-600 hover:underline text-sm font-medium"
-                              >
-                                View →
-                              </button>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setActiveTab("mentors")}
+                                  className="text-blue-600 hover:underline text-xs font-medium px-2 py-1 bg-blue-50 rounded"
+                                >
+                                  View Mentors
+                                </button>
+                                <button
+                                  onClick={() => navigate(`/skill/${skill._id}`)}
+                                  className="text-blue-600 hover:underline text-xs font-medium px-2 py-1"
+                                >
+                                  Details →
+                                </button>
+                              </div>
                             </div>
                           </div>
                         ))}
                       </div>
+                      
+                      {/* Info box showing filtered mentors */}
+                      {filteredMentors.length > 0 && (
+                        <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                          <p className="text-green-700 font-medium">
+                            ✓ Found {filteredMentors.length} mentor{filteredMentors.length !== 1 ? 's' : ''} teaching <strong>"{lastSearchedSkillId}"</strong>
+                          </p>
+                          <button
+                            onClick={() => setActiveTab("mentors")}
+                            className="mt-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm"
+                          >
+                            View These Mentors →
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -423,13 +560,53 @@ export default function LearnerDashboard() {
             {activeTab === "mentors" && (
               <div className="space-y-6">
                 <div className="bg-white rounded-lg shadow p-6">
-                  <h2 className="text-2xl font-semibold mb-4">👨‍🏫 Available Mentors</h2>
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h2 className="text-2xl font-semibold mb-2">👨‍🏫 Available Mentors</h2>
+                      {lastSearchedSkillId && (
+                        <p className="text-sm text-green-600">
+                          📌 Filtered to show mentors teaching <strong>"{lastSearchedSkillId}"</strong>
+                          <button
+                            onClick={() => {
+                              setLastSearchedSkillId(null);
+                              setFilteredMentors(mentors);
+                              setSearchQuery("");
+                              setSearchResults([]);
+                            }}
+                            className="ml-2 text-xs bg-green-100 px-2 py-1 rounded hover:bg-green-200"
+                          >
+                            Clear filter
+                          </button>
+                        </p>
+                      )}
+                    </div>
+                  </div>
 
                   <div className="mb-4">
                     <input
                       type="text"
                       placeholder="Search mentors..."
-                      onChange={(e) => handleFilterMentors(e.target.value)}
+                      onChange={(e) => {
+                        if (!lastSearchedSkillId) {
+                          handleFilterMentors(e.target.value);
+                        } else {
+                          // Still filter within the already filtered mentors
+                          const query = e.target.value;
+                          if (!query) {
+                            setFilteredMentors(mentors.filter(mentor => 
+                              searchResults.some(skill => skill.user?._id === mentor._id)
+                            ));
+                          } else {
+                            const baseFiltered = mentors.filter(mentor => 
+                              searchResults.some(skill => skill.user?._id === mentor._id)
+                            );
+                            setFilteredMentors(baseFiltered.filter(mentor =>
+                              mentor.name.toLowerCase().includes(query.toLowerCase()) ||
+                              mentor.bio?.toLowerCase().includes(query.toLowerCase())
+                            ));
+                          }
+                        }
+                      }}
                       className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
@@ -519,41 +696,81 @@ export default function LearnerDashboard() {
 
                   {sessions.length > 0 ? (
                     <div className="space-y-4">
-                      {sessions.map(session => (
-                        <div
-                          key={session._id}
-                          className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 rounded-lg"
-                        >
-                          <div className="flex justify-between items-start mb-3">
-                            <div>
-                              <h4 className="font-semibold text-slate-900">
-                                {session.mentor?.name || "Unknown Mentor"}
-                              </h4>
-                              <p className="text-sm text-slate-600 mt-1">
-                                Skill: {session.skillTopic?.skillName || "TBD"}
+                      {sessions.map(session => {
+                        const timeInfo = getTimeRemaining(session.scheduledAt);
+                        const isSessionInProgress = session.status === "in-progress";
+                        const isSessionStarted = timeInfo.status === "started" || isSessionInProgress;
+                        
+                        return (
+                          <div
+                            key={session._id}
+                            className={`p-4 rounded-lg border-l-4 transition-all ${
+                              isSessionStarted
+                                ? "bg-gradient-to-r from-green-50 to-emerald-50 border-green-500"
+                                : "bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-500"
+                            }`}
+                          >
+                            <div className="flex justify-between items-start mb-3">
+                              <div>
+                                <h4 className="font-semibold text-slate-900">
+                                  {session.mentor?.name || "Unknown Mentor"}
+                                </h4>
+                                <p className="text-sm text-slate-600 mt-1">
+                                  Skill: {session.skillTopic?.skillName || "TBD"}
+                                </p>
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                  isSessionStarted
+                                    ? "bg-green-100 text-green-700"
+                                    : "bg-blue-100 text-blue-700"
+                                }`}>
+                                  {isSessionInProgress ? "🔴 IN PROGRESS" : isSessionStarted ? "🔴 LIVE" : session.status}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            <div className="text-sm text-slate-700 space-y-1 mb-3">
+                              <p>📊 Duration: {session.duration || "N/A"} minutes</p>
+                              <p>🕐 Scheduled: {new Date(session.scheduledAt).toLocaleString()}</p>
+                              {session.startedAt && (
+                                <p className="text-green-700 font-medium">✓ Started at: {new Date(session.startedAt).toLocaleString()}</p>
+                              )}
+                              <p className={`font-medium ${
+                                isSessionStarted ? "text-green-700" : "text-orange-600"
+                              }`}>
+                                ⏱️ {isSessionInProgress ? "Session is in progress!" : isSessionStarted ? "Session is live! Join now →" : `Starts in: ${timeInfo.remaining}`}
                               </p>
                             </div>
-                            <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-                              {session.status}
-                            </span>
+
+                            {!session.meetingLink && (
+                              <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
+                                ⚠️ Meeting link will be added by your mentor closer to session time.
+                              </div>
+                            )}
+                            
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleJoinSession(session)}
+                                className={`flex-1 px-4 py-2 rounded text-sm font-medium transition-all ${
+                                  isSessionStarted
+                                    ? "bg-green-600 text-white hover:bg-green-700 shadow-lg"
+                                    : "bg-blue-600 text-white hover:bg-blue-700"
+                                }`}
+                              >
+                                {isSessionStarted ? "🔗 Join Now" : "📞 Join Session"}
+                              </button>
+                              <Link
+                                to={`/chat/${session.mentor?._id}`}
+                                state={{ mentor: session.mentor }}
+                                className="flex-1 px-4 py-2 bg-slate-300 text-slate-900 rounded text-sm hover:bg-slate-400 font-medium text-center transition-all"
+                              >
+                                💬 Message
+                              </Link>
+                            </div>
                           </div>
-                          <div className="text-sm text-slate-700 space-y-1">
-                            <p>📊 Duration: {session.duration || "N/A"} minutes</p>
-                            <p>🕐 Scheduled: {new Date(session.scheduledAt).toLocaleString()}</p>
-                          </div>
-                          <div className="flex gap-2 mt-3">
-                            <button className="px-4 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700">
-                              Join
-                            </button>
-                            <Link
-                              to={`/chat/${session.mentor?._id}`}
-                              className="px-4 py-1 bg-slate-300 text-slate-900 rounded text-sm hover:bg-slate-400"
-                            >
-                              Message
-                            </Link>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-center py-8 text-slate-600">

@@ -274,6 +274,45 @@ exports.updateMeetingLink = async (req, res) => {
 };
 
 /* =========================================
+   START SESSION (learner joins the session)
+========================================= */
+exports.startSession = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { sessionId } = req.body;
+
+    if (!sessionId) return res.status(400).json({ msg: "sessionId required" });
+
+    const session = await Session.findById(sessionId);
+    if (!session) return res.status(404).json({ msg: "Session not found" });
+
+    // Only learner for this session may start it
+    if (session.learner.toString() !== userId) {
+      return res.status(403).json({ msg: "Unauthorized - only the learner can start this session" });
+    }
+
+    // Only start if session is scheduled
+    if (session.status !== "scheduled") {
+      return res.status(400).json({ msg: `Session cannot be started. Current status: ${session.status}` });
+    }
+
+    // Mark session as in-progress and record start time
+    session.status = "in-progress";
+    session.startedAt = new Date();
+    await session.save();
+
+    const updated = await Session.findById(sessionId)
+      .populate("learner", "name email photo")
+      .populate("mentor", "name email photo")
+      .populate("skillTopic", "skillName");
+
+    res.json({ msg: "Session started", session: updated });
+  } catch (err) {
+    res.status(500).json({ msg: err.message });
+  }
+};
+
+/* =========================================
    MENTOR ACCEPT (mark accepted, then mentor schedules)
    This endpoint is used when a mentor accepts a pending request
    and wants the learner notified that scheduling will follow.
@@ -292,7 +331,8 @@ exports.acceptRequest = async (req, res) => {
 
     const populated = await Session.findById(sessionId)
       .populate('learner', 'name email')
-      .populate('mentor', 'name');
+      .populate('mentor', 'name')
+      .populate('skillTopic', 'skillName');
 
     // Notify learner by email that request was accepted and scheduling will follow
     try {
@@ -308,6 +348,7 @@ exports.acceptRequest = async (req, res) => {
 
     res.json({ msg: 'Request accepted', session: populated });
   } catch (err) {
-    res.status(500).json({ msg: 'Failed to accept request' });
+    console.error('Error in acceptRequest:', err);
+    res.status(500).json({ msg: 'Failed to accept request', error: err.message });
   }
 };

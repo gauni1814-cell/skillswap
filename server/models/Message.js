@@ -7,7 +7,14 @@ const messageSchema = new mongoose.Schema(
     receiver: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     text: String,
     clientMessageId: { type: String, index: true },
-
+    attachments: [{
+      name: String,
+      type: String, // mimetype (image/jpeg, application/pdf, etc.)
+      size: Number, // file size in bytes
+      data: String, // base64 encoded file data
+      url: String, // optional: URL if stored externally
+      _id: false
+    }],
     isRead: { type: Boolean, default: false },
   },
   { timestamps: true }

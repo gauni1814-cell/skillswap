@@ -35,10 +35,10 @@ const sessionSchema = new mongoose.Schema(
         default: ""
     },
 
-    // Workflow status: pending -> scheduled -> completed -> rejected/cancelled
+    // Workflow status: pending -> accepted -> scheduled -> in-progress -> completed -> rejected/cancelled
     status: {
         type: String,
-        enum: ["pending", "scheduled", "completed", "rejected", "cancelled"],
+        enum: ["pending", "accepted", "scheduled", "in-progress", "completed", "rejected", "cancelled"],
         default: "pending"
     },
 
@@ -52,12 +52,17 @@ const sessionSchema = new mongoose.Schema(
     rating: {
         type: Number,
         default: 0
+    },
+    
+    startedAt: {
+        type: Date,
+        default: null
+    },
+    
+    completedAt: {
+        type: Date,
+        default: null
     }
-        ,
-        completedAt: {
-            type: Date,
-            default: null
-        }
 },
 { timestamps: true }
 );

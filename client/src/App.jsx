@@ -123,6 +123,15 @@ export default function App() {
           />
 
           <Route
+            path="/chat/:mentorId"
+            element={
+              <ProtectedRoute>
+                <Chat />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
             path="/matches"
             element={
               <ProtectedRoute>

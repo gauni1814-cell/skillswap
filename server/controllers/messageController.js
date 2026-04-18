@@ -15,7 +15,7 @@ const toObjectId = (id) => {
 // Send a message
 exports.sendMessage = async (req, res) => {
   try {
-    const { receiverId, text } = req.body;
+    const { receiverId, text, attachments = [] } = req.body;
     
     // Create unique chatId for the conversation
     const chatId = [req.user.id, receiverId].sort().join("_");
@@ -24,7 +24,8 @@ exports.sendMessage = async (req, res) => {
       chatId,
       sender: toObjectId(req.user.id),
       receiver: toObjectId(receiverId),
-      text,
+      text: text || "",
+      attachments: attachments && attachments.length > 0 ? attachments : [],
       isRead: false
     });
     
@@ -54,6 +55,7 @@ exports.sendMessage = async (req, res) => {
           photo: populatedMessage.receiver.photo
         },
         text: populatedMessage.text,
+        attachments: populatedMessage.attachments || [],
         createdAt: populatedMessage.createdAt,
         isRead: populatedMessage.isRead
       };
